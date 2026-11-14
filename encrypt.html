@@ -18,10 +18,10 @@
 </head>
 <body>
 <h2>Шифрование модели</h2>
-<p>Выберите файл модели (.wrl), задайте пароль и нажмите «Зашифровать». Программа создаст файл <b>model.bin</b>. Файл шифруется прямо в вашем браузере, никуда не отправляется.</p>
+<p>Выберите файл модели (.glb, который готовит Claude, или .wrl), задайте пароль и нажмите «Зашифровать». Программа создаст файл <b>model.bin</b>. Файл шифруется прямо в вашем браузере, никуда не отправляется.</p>
 
-<label>Файл модели (.wrl)</label>
-<input id="file" type="file" accept=".wrl">
+<label>Файл модели (.glb)</label>
+<input id="file" type="file" accept=".glb,.wrl,.gz">
 
 <label>Пароль</label>
 <input id="pw1" type="password" autocomplete="new-password">
@@ -42,7 +42,7 @@ function setMsg(text, cls) { $('msg').textContent = text; $('msg').className = c
 $('btn').onclick = async () => {
   const file = $('file').files[0];
   const p1 = $('pw1').value, p2 = $('pw2').value;
-  if (!file) return setMsg('Выберите файл .wrl', 'err');
+  if (!file) return setMsg('Выберите файл модели', 'err');
   if (p1.length < 8) return setMsg('Пароль должен быть не короче 8 символов', 'err');
   if (p1 !== p2) return setMsg('Пароли не совпадают', 'err');
 
@@ -67,7 +67,7 @@ $('btn').onclick = async () => {
     a.href = url; a.download = 'model.bin';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    setMsg('Готово: model.bin сохранён в папку загрузок.', 'ok');
+    setMsg('Готово: model.bin (' + (out.length/1048576).toFixed(1) + ' МБ) сохранён в папку загрузок.' + (out.length > 25*1048576 ? ' Файл больше 25 МБ: через сайт GitHub его не загрузить.' : ''), out.length > 25*1048576 ? 'err' : 'ok');
   } catch (e) {
     setMsg('Ошибка: ' + e.message, 'err');
   } finally {

@@ -66,30 +66,19 @@ window.addEventListener('error', e => { const s = document.getElementById('statu
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VRMLLoader } from 'three/addons/loaders/VRMLLoader.js';
-
-// Блоки модели, в порядке из файла. Имена совпадают с DEF-именами в .wrl.
-const BLOCKS = [
-  { name: '03.',              label: '03' },
-  { name: '05.',              label: '05' },
-  { name: '01._PMM',          label: '01 PMM' },
-  { name: '02.__Moyka',       label: 'Мойка' },
-  { name: '07._Stoleshnitsa', label: 'Столешница' },
-  { name: '08.verkh_1',       label: 'Верх 08' },
-  { name: 'Steny',            label: 'Стены' },
-];
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 
 let renderer, scene, camera, controls;
-let blockObjs = [];      // THREE.Object3D для каждого блока (в порядке BLOCKS)
+let BLOCKS = [];         // [{ obj, label }] — блоки верхнего уровня модели, в порядке из Базиса
 let frameObjs = [];      // габаритные рамки
 let mode = 'only';       // 'only' | 'all' | 'step'
-let current = 0;         // индекс текущего блока (для 'only' и 'step')
+let current = 0;
 let showFrames = false;
 
-// --- Расшифровка: файл model.bin = соль(16) + IV(12) + шифртекст (AES-GCM, ключ PBKDF2-SHA256) ---
+// --- Расшифровка: model.bin = соль(16) + IV(12) + шифртекст (AES-GCM, ключ PBKDF2-SHA256) ---
 async function decrypt(password, buf) {
   const b = new Uint8Array(buf);
   const salt = b.slice(0, 16), iv = b.slice(16, 28), data = b.slice(28);
@@ -98,6 +87,13 @@ async function decrypt(password, buf) {
     { name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
     base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
   return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+}
+
+async function gunzipIfNeeded(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).arrayBuffer();
 }
 
 async function openModel() {
@@ -111,25 +107,47 @@ async function openModel() {
     if (!resp.ok) throw new Error('Не найден model.bin');
     const buf = await resp.arrayBuffer();
     $('err').textContent = 'Проверка пароля…';
-    const plain = await decrypt(pw, buf);
-    const text = new TextDecoder().decode(plain);
+    const plain = await gunzipIfNeeded(await decrypt(pw, buf));
+    if (new TextDecoder().decode(new Uint8Array(plain, 0, 5)) === '#VRML')
+      throw new Error('на сайте старый файл model.bin. Загрузите новый, сделанный из .glb');
     $('err').textContent = '';
     $('gate').hidden = true;
     $('app').hidden = false;
-    statusEl.textContent = 'Разбор модели (до минуты)…';
-    await new Promise(r => setTimeout(r, 50));
-    try { init(text); }
+    statusEl.textContent = 'Разбор модели…';
+    await new Promise(r => setTimeout(r, 30));
+    try { await init(plain); }
     catch (e2) { statusEl.textContent = 'Ошибка при разборе модели: ' + e2.message; console.error(e2); }
     return;
   } catch (e) {
-    // Неверный пароль даёт ошибку расшифровки (AES-GCM проверяет подпись)
     $('err').textContent = e.name === 'OperationError' ? 'Неверный пароль' : ('Ошибка: ' + e.message);
   } finally {
     $('go').disabled = false;
   }
 }
 
-function init(vrmlText) {
+// Имена в файле записаны латиницей (транслит Базиса). Переводим обратно в кириллицу для кнопок.
+function label(name) {
+  let s = name.replace(/_+/g, ' ').replace(/^(\d+)\.\s*/, '$1 ').replace(/\.(?=\s|$)/g, '').trim();
+  const pairs = [['shch','щ'],['kh','х'],['zh','ж'],['ch','ч'],['sh','ш'],['ts','ц'],['yu','ю'],['ya','я'],['yo','ё'],
+    ['a','а'],['b','б'],['v','в'],['g','г'],['d','д'],['e','е'],['z','з'],['i','и'],['k','к'],['l','л'],['m','м'],['n','н'],
+    ['o','о'],['p','п'],['r','р'],['s','с'],['t','т'],['u','у'],['f','ф'],['c','ц'],['h','х'],['j','й'],['w','в'],['x','кс'],['q','к']];
+  return s.split(' ').map(w => {
+    if (/^[0-9.]+$/.test(w)) return w;
+    const allUp = /^[A-Z]{2,}$/.test(w);
+    const up = /^[A-Z]/.test(w);
+    let lw = w.toLowerCase(), out = '';
+    for (let i = 0; i < lw.length;) {
+      const p = pairs.find(([lat]) => lw.startsWith(lat, i));
+      if (p && p[0].length > 1) { out += p[1]; i += p[0].length; continue; }
+      if (lw[i] === 'y') { out += /[аеиоуыэюяёі]/.test(out.slice(-1)) ? 'й' : 'ы'; i++; continue; }
+      if (p) { out += p[1]; i += p[0].length; } else { out += lw[i]; i++; }
+    }
+    if (allUp) return out.toUpperCase();
+    return up ? out[0].toUpperCase() + out.slice(1) : out;
+  }).join(' ');
+}
+
+async function init(glbBuffer) {
   const view = $('view');
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -137,64 +155,38 @@ function init(vrmlText) {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x3a3f47);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.6));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2.2));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.6);
   dir.position.set(1, 2, 1.5);
   scene.add(dir);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.8);
+  fill.position.set(-1, 0.5, -1);
+  scene.add(fill);
 
   camera = new THREE.PerspectiveCamera(45, 1, 1, 100000);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  // Базис пишет имена, которые загрузчик не понимает (цифра в начале, точки, скобки),
-  // и пути текстур с обратной косой чертой. Временно заменяем имена и убираем текстуры.
-  const prep = prepareVrml(vrmlText);
-  const loader = new VRMLLoader();
-  const model = loader.parse(prep.text, '');
-  model.traverse(o => { if (prep.back[o.name]) o.name = prep.back[o.name]; });
+  const gltf = await new GLTFLoader().parseAsync(glbBuffer, '');
+  const model = gltf.scene;
   scene.add(model);
 
-  // Ищем блоки по именам; рамки помечаем
-  blockObjs = BLOCKS.map(b => findByName(model, b.name));
+  // Блоки: дочерние узлы корня модели («Model»), как в дереве Базиса
+  let root = model;
+  while (root.children.length === 1 && !root.children[0].isMesh) root = root.children[0];
+  const nm = (o) => o.userData.name || o.name;
+  BLOCKS = root.children.filter(o => !o.isMesh && nm(o) !== 'Gabaritnaya_ramka')
+                        .map(o => ({ obj: o, label: label(nm(o) || 'Блок') }));
   frameObjs = [];
-  model.traverse(o => { if (o.name === 'Gabaritnaya_ramka') frameObjs.push(o); });
-
-  const missing = BLOCKS.filter((b, i) => !blockObjs[i]).map(b => b.name);
-  let meshes = 0;
-  model.traverse(o => { if (o.isMesh) meshes++; });
-  if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ');
-  else statusEl.textContent = 'Сеток в модели: ' + meshes;
-  // Светлые поверхности не видны без света: добавляем свет со всех сторон
-  const fill = new THREE.DirectionalLight(0xffffff, 1.0);
-  fill.position.set(-1, -1, -1);
-  scene.add(fill);
+  model.traverse(o => { if (nm(o) === 'Gabaritnaya_ramka') frameObjs.push(o); });
 
   buildList();
-  frameObjs.forEach(f => f.visible = showFrames);
   applyView();
   fitToVisible();
 
   window.addEventListener('resize', resize);
   resize();
-  if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ') + ' (сеток: ' + meshes + ')';
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
-}
-
-function prepareVrml(text) {
-  text = text.replace(/texture\s+ImageTexture\s*\{[^}]*\}/g, '');
-  const map = new Map(), back = {};
-  text = text.replace(/\b(DEF|USE)\s+(\S+)/g, (m, k, n) => {
-    let id = map.get(n);
-    if (!id) { id = 'N' + map.size; map.set(n, id); back[id] = n; }
-    return k + ' ' + id;
-  });
-  return { text, back };
-}
-
-function findByName(root, name) {
-  let found = null;
-  root.traverse(o => { if (!found && o.name === name) found = o; });
-  return found;
 }
 
 function resize() {
@@ -217,43 +209,39 @@ function buildList() {
   });
 }
 
-// Показ в зависимости от режима
 function applyView() {
-  blockObjs.forEach((o, i) => {
-    if (!o) return;
-    if (mode === 'all') o.visible = true;
-    else if (mode === 'only') o.visible = (i === current);
-    else if (mode === 'step') o.visible = (i <= current);   // сборка: все уже собранные блоки до текущего
+  BLOCKS.forEach((b, i) => {
+    if (mode === 'all') b.obj.visible = true;
+    else if (mode === 'only') b.obj.visible = (i === current);
+    else if (mode === 'step') b.obj.visible = (i <= current);
   });
   frameObjs.forEach(f => f.visible = showFrames);
 
-  // подсветка кнопок
   setOn('bOnly', mode === 'only');
   setOn('bAll', mode === 'all');
   setOn('bStep', mode === 'step');
   setOn('bFrames', showFrames);
   document.querySelectorAll('#list button').forEach(b => b.classList.toggle('on', Number(b.dataset.i) === current));
 
-  const label = BLOCKS[current] ? BLOCKS[current].label : '';
-  if (mode === 'only') statusEl.textContent = 'Блок: ' + label;
-  else if (mode === 'step') statusEl.textContent = 'Шаг ' + (current + 1) + ' из ' + BLOCKS.length + ': ' + label;
+  const lbl = BLOCKS[current] ? BLOCKS[current].label : '';
+  if (mode === 'only') statusEl.textContent = 'Блок: ' + lbl;
+  else if (mode === 'step') statusEl.textContent = 'Шаг ' + (current + 1) + ' из ' + BLOCKS.length + ': ' + lbl;
   else statusEl.textContent = 'Все блоки';
 }
 
 function setOn(id, on) { $(id).classList.toggle('on', on); }
 
-// Камера: подогнать вид под видимые блоки (для режима "только этот" — под выбранный блок)
 function fitToVisible() {
   const box = new THREE.Box3();
-  const targetObjs = mode === 'all' ? blockObjs : (mode === 'step' ? blockObjs.slice(0, current + 1) : [blockObjs[current]]);
-  targetObjs.forEach(o => { if (o) box.expandByObject(o); });
+  const objs = mode === 'all' ? BLOCKS : (mode === 'step' ? BLOCKS.slice(0, current + 1) : [BLOCKS[current]]);
+  objs.forEach(b => { if (b) box.expandByObject(b.obj); });
   if (box.isEmpty()) return;
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3()).length();
   controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(size * 0.8, size * 0.5, size * 0.8));
+  camera.position.copy(center).add(new THREE.Vector3(size * 0.6, size * 0.45, size * 0.9));
   camera.near = size / 1000;
-  camera.far = size * 10;
+  camera.far = size * 20;
   camera.updateProjectionMatrix();
   controls.update();
 }
