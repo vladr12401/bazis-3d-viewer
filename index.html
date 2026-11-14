@@ -125,7 +125,7 @@ function init(vrmlText) {
   view.appendChild(renderer.domElement);
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf4f4f2);
+  scene.background = new THREE.Color(0x3a3f47);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.6));
   const dir = new THREE.DirectionalLight(0xffffff, 1.2);
   dir.position.set(1, 2, 1.5);
@@ -145,7 +145,14 @@ function init(vrmlText) {
   model.traverse(o => { if (o.name === 'Gabaritnaya_ramka') frameObjs.push(o); });
 
   const missing = BLOCKS.filter((b, i) => !blockObjs[i]).map(b => b.name);
+  let meshes = 0;
+  model.traverse(o => { if (o.isMesh) meshes++; });
   if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ');
+  else statusEl.textContent = 'Сеток в модели: ' + meshes;
+  // Светлые поверхности не видны без света: добавляем свет со всех сторон
+  const fill = new THREE.DirectionalLight(0xffffff, 1.0);
+  fill.position.set(-1, -1, -1);
+  scene.add(fill);
 
   buildList();
   frameObjs.forEach(f => f.visible = showFrames);
