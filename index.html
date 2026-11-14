@@ -43,6 +43,8 @@
     <button id="bOnly" class="on">Только этот блок</button>
     <button id="bAll">Показать все</button>
     <button id="bStep">Сборка по шагам</button>
+    <button id="bXray">Прозрачный</button>
+    <button id="bGhost">Соседние блоки</button>
     <button id="bFrames">Габаритные рамки</button>
     <button id="prev">◀ Назад</button>
     <button id="next">Вперёд ▶</button>
@@ -77,6 +79,44 @@ let frameObjs = [];      // габаритные рамки
 let mode = 'only';       // 'only' | 'all' | 'step'
 let current = 0;
 let showFrames = false;
+let xray = false;        // прозрачный вид с рёбрами
+let ghosts = false;      // показывать остальные блоки бледно
+let edgesBuilt = false;
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.12, depthWrite: false });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 });
+const xrayCache = new Map();
+function xrayOf(m) {
+  if (!xrayCache.has(m)) {
+    const c = m.clone();
+    c.transparent = true; c.opacity = 0.28; c.depthWrite = false;
+    xrayCache.set(m, c);
+  }
+  return xrayCache.get(m);
+}
+function buildEdges() {
+  if (edgesBuilt) return;
+  edgesBuilt = true;
+  const meshes = [];
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.isMesh) meshes.push(o); }));
+  meshes.forEach(o => {
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 25), edgeMat);
+    e.userData.isEdge = true;
+    e.visible = false;
+    o.add(e);
+  });
+}
+// Как показать блок: 'normal' | 'xray' | 'ghost' | 'hidden'
+function setLook(obj, look) {
+  obj.visible = look !== 'hidden';
+  if (look === 'hidden') return;
+  obj.traverse(o => {
+    if (o.userData.isEdge) { o.visible = look === 'xray'; return; }
+    if (!o.isMesh) return;
+    if (!o.userData.mat0) o.userData.mat0 = o.material;
+    o.material = look === 'ghost' ? ghostMat : (look === 'xray' ? xrayOf(o.userData.mat0) : o.userData.mat0);
+    o.renderOrder = look === 'normal' ? 0 : 1;
+  });
+}
 
 // --- Расшифровка: model.bin = соль(16) + IV(12) + шифртекст (AES-GCM, ключ PBKDF2-SHA256) ---
 async function decrypt(password, buf) {
@@ -210,10 +250,10 @@ function buildList() {
 }
 
 function applyView() {
+  if (xray) buildEdges();
   BLOCKS.forEach((b, i) => {
-    if (mode === 'all') b.obj.visible = true;
-    else if (mode === 'only') b.obj.visible = (i === current);
-    else if (mode === 'step') b.obj.visible = (i <= current);
+    const sel = mode === 'all' || (mode === 'only' ? i === current : i <= current);
+    setLook(b.obj, sel ? (xray ? 'xray' : 'normal') : (ghosts ? 'ghost' : 'hidden'));
   });
   frameObjs.forEach(f => f.visible = showFrames);
 
@@ -221,6 +261,8 @@ function applyView() {
   setOn('bAll', mode === 'all');
   setOn('bStep', mode === 'step');
   setOn('bFrames', showFrames);
+  setOn('bXray', xray);
+  setOn('bGhost', ghosts);
   document.querySelectorAll('#list button').forEach(b => b.classList.toggle('on', Number(b.dataset.i) === current));
 
   const lbl = BLOCKS[current] ? BLOCKS[current].label : '';
@@ -259,6 +301,11 @@ $('bOnly').onclick = () => go('only');
 $('bAll').onclick = () => go('all');
 $('bStep').onclick = () => go('step');
 $('bFrames').onclick = () => { showFrames = !showFrames; applyView(); };
+$('bXray').onclick = () => {
+  if (!xray && !edgesBuilt) { statusEl.textContent = 'Готовлю прозрачный вид…'; setTimeout(() => { xray = true; applyView(); }, 30); return; }
+  xray = !xray; applyView();
+};
+$('bGhost').onclick = () => { ghosts = !ghosts; applyView(); };
 $('prev').onclick = () => go(null, -1);
 $('next').onclick = () => go(null, +1);
 </script>
