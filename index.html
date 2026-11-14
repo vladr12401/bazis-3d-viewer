@@ -21,7 +21,7 @@
   #list button.on { background: #dbe8f8; font-weight: 600; }
   #view { flex: 1; position: relative; min-width: 0; }
   #view canvas { display: block; width: 100%; height: 100%; }
-  #status { position: absolute; left: 8px; bottom: 8px; background: rgba(255,255,255,.85); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  #status { position: absolute; left: 8px; bottom: 8px; right: 8px; width: fit-content; background: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
   @media (max-width: 640px) {
     #main { flex-direction: column; }
     #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
@@ -60,6 +60,9 @@
 } }
 </script>
 
+<script>
+window.addEventListener('error', e => { const s = document.getElementById('status'); if (s) s.textContent = 'Ошибка: ' + e.message; const r = document.getElementById('err'); if (r) r.textContent = 'Ошибка: ' + e.message; });
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -103,13 +106,21 @@ async function openModel() {
   if (!pw) { $('err').textContent = 'Введите пароль'; return; }
   $('go').disabled = true;
   try {
-    const resp = await fetch('model.bin');
+    $('err').textContent = 'Скачивание модели…';
+    const resp = await fetch('model.bin', { cache: 'no-store' });
     if (!resp.ok) throw new Error('Не найден model.bin');
-    const plain = await decrypt(pw, await resp.arrayBuffer());
+    const buf = await resp.arrayBuffer();
+    $('err').textContent = 'Проверка пароля…';
+    const plain = await decrypt(pw, buf);
     const text = new TextDecoder().decode(plain);
+    $('err').textContent = '';
     $('gate').hidden = true;
     $('app').hidden = false;
-    init(text);
+    statusEl.textContent = 'Разбор модели (до минуты)…';
+    await new Promise(r => setTimeout(r, 50));
+    try { init(text); }
+    catch (e2) { statusEl.textContent = 'Ошибка при разборе модели: ' + e2.message; console.error(e2); }
+    return;
   } catch (e) {
     // Неверный пароль даёт ошибку расшифровки (AES-GCM проверяет подпись)
     $('err').textContent = e.name === 'OperationError' ? 'Неверный пароль' : ('Ошибка: ' + e.message);
@@ -161,6 +172,7 @@ function init(vrmlText) {
 
   window.addEventListener('resize', resize);
   resize();
+  if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ') + ' (сеток: ' + meshes + ')';
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 }
 
