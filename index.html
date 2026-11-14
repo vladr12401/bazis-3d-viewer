@@ -146,8 +146,12 @@ function init(vrmlText) {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
+  // Базис пишет имена, которые загрузчик не понимает (цифра в начале, точки, скобки),
+  // и пути текстур с обратной косой чертой. Временно заменяем имена и убираем текстуры.
+  const prep = prepareVrml(vrmlText);
   const loader = new VRMLLoader();
-  const model = loader.parse(vrmlText, '');
+  const model = loader.parse(prep.text, '');
+  model.traverse(o => { if (prep.back[o.name]) o.name = prep.back[o.name]; });
   scene.add(model);
 
   // Ищем блоки по именам; рамки помечаем
@@ -174,6 +178,17 @@ function init(vrmlText) {
   resize();
   if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ') + ' (сеток: ' + meshes + ')';
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+}
+
+function prepareVrml(text) {
+  text = text.replace(/texture\s+ImageTexture\s*\{[^}]*\}/g, '');
+  const map = new Map(), back = {};
+  text = text.replace(/\b(DEF|USE)\s+(\S+)/g, (m, k, n) => {
+    let id = map.get(n);
+    if (!id) { id = 'N' + map.size; map.set(n, id); back[id] = n; }
+    return k + ' ' + id;
+  });
+  return { text, back };
 }
 
 function findByName(root, name) {
