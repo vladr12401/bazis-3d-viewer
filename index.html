@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Просмотр сборки</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #f4f4f2; }
+  #gate { max-width: 320px; margin: 15vh auto; padding: 24px; background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  #gate h2 { margin: 0 0 16px; font-size: 20px; }
+  #gate input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; margin-bottom: 10px; }
+  #err { color: #b00020; min-height: 1.2em; margin: 8px 0 0; font-size: 14px; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: #fff; border-bottom: 1px solid #ddd; }
+  #bar button, #gate button { padding: 9px 12px; font-size: 15px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
+  #bar button.on { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #gate button { width: 100%; background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #main { flex: 1; display: flex; min-height: 0; }
+  #list { width: 190px; overflow-y: auto; background: #fff; border-right: 1px solid #ddd; }
+  #list button { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-bottom: 1px solid #eee; background: none; font-size: 15px; cursor: pointer; }
+  #list button.on { background: #dbe8f8; font-weight: 600; }
+  #view { flex: 1; position: relative; min-width: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  #status { position: absolute; left: 8px; bottom: 8px; background: rgba(255,255,255,.85); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  @media (max-width: 640px) {
+    #main { flex-direction: column; }
+    #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
+    #list button { width: auto; white-space: nowrap; border-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h2>Просмотр модели</h2>
+  <input id="pw" type="password" placeholder="Пароль" autocomplete="off">
+  <button id="go">Открыть</button>
+  <p id="err"></p>
+</div>
+
+<div id="app" hidden>
+  <div id="bar">
+    <button id="bOnly" class="on">Только этот блок</button>
+    <button id="bAll">Показать все</button>
+    <button id="bStep">Сборка по шагам</button>
+    <button id="bFrames">Габаритные рамки</button>
+    <button id="prev">◀ Назад</button>
+    <button id="next">Вперёд ▶</button>
+  </div>
+  <div id="main">
+    <div id="list"></div>
+    <div id="view"><div id="status">Загрузка…</div></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { VRMLLoader } from 'three/addons/loaders/VRMLLoader.js';
+
+// Блоки модели, в порядке из файла. Имена совпадают с DEF-именами в .wrl.
+const BLOCKS = [
+  { name: '03.',              label: '03' },
+  { name: '05.',              label: '05' },
+  { name: '01._PMM',          label: '01 PMM' },
+  { name: '02.__Moyka',       label: 'Мойка' },
+  { name: '07._Stoleshnitsa', label: 'Столешница' },
+  { name: '08.verkh_1',       label: 'Верх 08' },
+  { name: 'Steny',            label: 'Стены' },
+];
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+
+let renderer, scene, camera, controls;
+let blockObjs = [];      // THREE.Object3D для каждого блока (в порядке BLOCKS)
+let frameObjs = [];      // габаритные рамки
+let mode = 'only';       // 'only' | 'all' | 'step'
+let current = 0;         // индекс текущего блока (для 'only' и 'step')
+let showFrames = false;
+
+// --- Расшифровка: файл model.bin = соль(16) + IV(12) + шифртекст (AES-GCM, ключ PBKDF2-SHA256) ---
+async function decrypt(password, buf) {
+  const b = new Uint8Array(buf);
+  const salt = b.slice(0, 16), iv = b.slice(16, 28), data = b.slice(28);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+}
+
+async function openModel() {
+  $('err').textContent = '';
+  const pw = $('pw').value;
+  if (!pw) { $('err').textContent = 'Введите пароль'; return; }
+  $('go').disabled = true;
+  try {
+    const resp = await fetch('model.bin');
+    if (!resp.ok) throw new Error('Не найден model.bin');
+    const plain = await decrypt(pw, await resp.arrayBuffer());
+    const text = new TextDecoder().decode(plain);
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    init(text);
+  } catch (e) {
+    // Неверный пароль даёт ошибку расшифровки (AES-GCM проверяет подпись)
+    $('err').textContent = e.name === 'OperationError' ? 'Неверный пароль' : ('Ошибка: ' + e.message);
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+function init(vrmlText) {
+  const view = $('view');
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  view.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf4f4f2);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 1.6));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(1, 2, 1.5);
+  scene.add(dir);
+
+  camera = new THREE.PerspectiveCamera(45, 1, 1, 100000);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  const loader = new VRMLLoader();
+  const model = loader.parse(vrmlText, '');
+  scene.add(model);
+
+  // Ищем блоки по именам; рамки помечаем
+  blockObjs = BLOCKS.map(b => findByName(model, b.name));
+  frameObjs = [];
+  model.traverse(o => { if (o.name === 'Gabaritnaya_ramka') frameObjs.push(o); });
+
+  const missing = BLOCKS.filter((b, i) => !blockObjs[i]).map(b => b.name);
+  if (missing.length) statusEl.textContent = 'Не найдены блоки: ' + missing.join(', ');
+
+  buildList();
+  frameObjs.forEach(f => f.visible = showFrames);
+  applyView();
+  fitToVisible();
+
+  window.addEventListener('resize', resize);
+  resize();
+  renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+}
+
+function findByName(root, name) {
+  let found = null;
+  root.traverse(o => { if (!found && o.name === name) found = o; });
+  return found;
+}
+
+function resize() {
+  const view = $('view');
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+function buildList() {
+  const list = $('list');
+  list.innerHTML = '';
+  BLOCKS.forEach((b, i) => {
+    const btn = document.createElement('button');
+    btn.textContent = b.label;
+    btn.dataset.i = i;
+    btn.onclick = () => { current = i; mode = 'only'; applyView(); fitToVisible(); };
+    list.appendChild(btn);
+  });
+}
+
+// Показ в зависимости от режима
+function applyView() {
+  blockObjs.forEach((o, i) => {
+    if (!o) return;
+    if (mode === 'all') o.visible = true;
+    else if (mode === 'only') o.visible = (i === current);
+    else if (mode === 'step') o.visible = (i <= current);   // сборка: все уже собранные блоки до текущего
+  });
+  frameObjs.forEach(f => f.visible = showFrames);
+
+  // подсветка кнопок
+  setOn('bOnly', mode === 'only');
+  setOn('bAll', mode === 'all');
+  setOn('bStep', mode === 'step');
+  setOn('bFrames', showFrames);
+  document.querySelectorAll('#list button').forEach(b => b.classList.toggle('on', Number(b.dataset.i) === current));
+
+  const label = BLOCKS[current] ? BLOCKS[current].label : '';
+  if (mode === 'only') statusEl.textContent = 'Блок: ' + label;
+  else if (mode === 'step') statusEl.textContent = 'Шаг ' + (current + 1) + ' из ' + BLOCKS.length + ': ' + label;
+  else statusEl.textContent = 'Все блоки';
+}
+
+function setOn(id, on) { $(id).classList.toggle('on', on); }
+
+// Камера: подогнать вид под видимые блоки (для режима "только этот" — под выбранный блок)
+function fitToVisible() {
+  const box = new THREE.Box3();
+  const targetObjs = mode === 'all' ? blockObjs : (mode === 'step' ? blockObjs.slice(0, current + 1) : [blockObjs[current]]);
+  targetObjs.forEach(o => { if (o) box.expandByObject(o); });
+  if (box.isEmpty()) return;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3()).length();
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(size * 0.8, size * 0.5, size * 0.8));
+  camera.near = size / 1000;
+  camera.far = size * 10;
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function go(newMode, delta = 0) {
+  if (newMode) mode = newMode;
+  if (delta) current = Math.min(BLOCKS.length - 1, Math.max(0, current + delta));
+  applyView();
+  fitToVisible();
+}
+
+$('go').onclick = openModel;
+$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') openModel(); });
+$('bOnly').onclick = () => go('only');
+$('bAll').onclick = () => go('all');
+$('bStep').onclick = () => go('step');
+$('bFrames').onclick = () => { showFrames = !showFrames; applyView(); };
+$('prev').onclick = () => go(null, -1);
+$('next').onclick = () => go(null, +1);
+</script>
+</body>
+</html>

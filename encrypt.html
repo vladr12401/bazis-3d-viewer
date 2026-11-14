@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шифрование модели</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin: 14px 0 6px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; }
+  button { margin-top: 18px; padding: 12px 16px; font-size: 16px; background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+  button:disabled { background: #999; }
+  #msg { margin-top: 14px; min-height: 1.2em; }
+  .err { color: #b00020; }
+  .ok { color: #1a7f37; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<h2>Шифрование модели</h2>
+<p>Выберите файл модели (.wrl), задайте пароль и нажмите «Зашифровать». Программа создаст файл <b>model.bin</b>. Файл шифруется прямо в вашем браузере, никуда не отправляется.</p>
+
+<label>Файл модели (.wrl)</label>
+<input id="file" type="file" accept=".wrl">
+
+<label>Пароль</label>
+<input id="pw1" type="password" autocomplete="new-password">
+
+<label>Повторите пароль</label>
+<input id="pw2" type="password" autocomplete="new-password">
+<small>Пароль нигде не сохраняется. Запишите его отдельно: без него модель не открыть.</small>
+
+<br>
+<button id="btn">Зашифровать</button>
+<div id="msg"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function setMsg(text, cls) { $('msg').textContent = text; $('msg').className = cls || ''; }
+
+$('btn').onclick = async () => {
+  const file = $('file').files[0];
+  const p1 = $('pw1').value, p2 = $('pw2').value;
+  if (!file) return setMsg('Выберите файл .wrl', 'err');
+  if (p1.length < 8) return setMsg('Пароль должен быть не короче 8 символов', 'err');
+  if (p1 !== p2) return setMsg('Пароли не совпадают', 'err');
+
+  $('btn').disabled = true;
+  setMsg('Шифрование…');
+  try {
+    const plain = new Uint8Array(await file.arrayBuffer());
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(p1), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+
+    // формат: соль(16) + IV(12) + шифртекст
+    const out = new Uint8Array(16 + 12 + cipher.length);
+    out.set(salt, 0); out.set(iv, 16); out.set(cipher, 28);
+
+    const url = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'model.bin';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setMsg('Готово: model.bin сохранён в папку загрузок.', 'ok');
+  } catch (e) {
+    setMsg('Ошибка: ' + e.message, 'err');
+  } finally {
+    $('btn').disabled = false;
+  }
+};
+</script>
+</body>
+</html>
