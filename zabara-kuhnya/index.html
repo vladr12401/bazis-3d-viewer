@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Просмотр сборки</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #f4f4f2; }
+  #gate { max-width: 320px; margin: 15vh auto; padding: 24px; background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  #gate h2 { margin: 0 0 16px; font-size: 20px; }
+  #gate input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; margin-bottom: 10px; }
+  #err { color: #b00020; min-height: 1.2em; margin: 8px 0 0; font-size: 14px; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: #fff; border-bottom: 1px solid #ddd; }
+  #bar button, #gate button { padding: 9px 12px; font-size: 15px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
+  #bar button.on { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #gate button { width: 100%; background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #main { flex: 1; display: flex; min-height: 0; }
+  #list { width: 190px; overflow-y: auto; background: #fff; border-right: 1px solid #ddd; }
+  #list button { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-bottom: 1px solid #eee; background: none; font-size: 15px; cursor: pointer; }
+  #list .row { display: flex; border-bottom: 1px solid #eee; }
+  #list .row button { border-bottom: 0; }
+  #list .row .sel { flex: 1; min-width: 0; }
+  #list .row .eye { flex: 0 0 auto; width: 38px; text-align: center; padding: 10px 0; font-size: 17px; }
+  #list .row.off .sel { color: #999; text-decoration: line-through; }
+  #list .row.off .eye { opacity: .45; }
+  #list button.on { background: #dbe8f8; font-weight: 600; }
+  #bar button.warn { background: #fff4d6; border-color: #e0b84a; }
+  #info .act { margin-top: 8px; padding: 6px 10px; font-size: 14px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
+  #view { flex: 1; position: relative; min-width: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  #status { position: absolute; left: 8px; bottom: 8px; right: 8px; width: fit-content; background: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  #info { position: absolute; right: 8px; top: 8px; max-width: min(340px, 80%); background: rgba(255,255,255,.96); border-radius: 8px; padding: 10px 34px 10px 12px; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  #info b { display: block; font-size: 15px; margin-bottom: 4px; }
+  #info small { color: #555; display: block; margin-top: 4px; word-break: break-word; }
+  .x { position: absolute; right: 6px; top: 4px; border: 0; background: none; font-size: 20px; cursor: pointer; color: #555; }
+  #legend { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #legend[hidden] { display: none; }
+  #legend .card { position: relative; background: #fff; border-radius: 10px; padding: 16px 18px; max-width: 560px; width: 92%; max-height: 88vh; overflow-y: auto; }
+  #legend h3 { margin: 0 0 10px; }
+  .item { display: flex; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid #eee; }
+  .item svg { flex: 0 0 150px; height: 70px; background: #3a3f47; border-radius: 6px; }
+  .item .t b { display: block; }
+  .item .t span { color: #555; font-size: 14px; }
+  .item .ph { flex: 0 0 150px; display: flex; gap: 4px; }
+  .item .ph img { flex: 1; min-width: 0; height: 70px; object-fit: contain; background: #fff; border-radius: 6px; border: 1px solid #eee; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+  @media (max-width: 640px) {
+    #main { flex-direction: column; }
+    #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
+    #list button { width: auto; white-space: nowrap; border-bottom: 0; }
+    #list .row { border-bottom: 0; border-right: 1px solid #eee; flex: 0 0 auto; }
+    #list .row .sel { flex: 0 0 auto; }
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h2>Просмотр модели</h2>
+  <input id="pw" type="password" placeholder="Пароль" autocomplete="off">
+  <button id="go">Открыть</button>
+  <p id="err"></p>
+</div>
+
+<div id="app" hidden>
+  <div id="bar">
+    <button id="bOnly" class="on">Только этот блок</button>
+    <button id="bAll">Показать все</button>
+    <button id="bStep">Сборка по шагам</button>
+    <button id="bXray">Прозрачный</button>
+    <button id="bGhost">Соседние блоки</button>
+    <button id="bFast" class="on">Крепёж</button>
+    <button id="bWalls" class="on" hidden>Стены</button>
+    <button id="bPlinth" class="on" hidden>Цоколь</button>
+    <button id="bTop" class="on" hidden>Столешница</button>
+    <button id="bUnhide" class="warn" hidden>Вернуть скрытое</button>
+    <button id="bFrames">Габаритные рамки</button>
+    <button id="bOpen">Открыть всё</button>
+    <button id="bLegend">Что за крепёж</button>
+    <button id="prev">◀ Назад</button>
+    <button id="next">Вперёд ▶</button>
+  </div>
+  <div id="main">
+    <div id="list"></div>
+    <div id="view"><div id="status">Загрузка…</div><div id="info" hidden></div></div>
+  </div>
+</div>
+
+<div id="legend" hidden><div class="card">
+  <button class="x" id="legendClose" aria-label="Закрыть">×</button>
+  <h3>Крепёж в модели</h3>
+  <div style="font-size:14px;color:#555">Нажмите на любую деталь или крепёж в модели: справа вверху появится его название. Крепёж лучше всего виден в режиме «Прозрачный».</div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(18,35)">
+      <rect x="0" y="-9" width="5" height="18" rx="1.5" fill="#dbb339"/><polygon points="5,-9 12,-6 12,6 5,9" fill="#c9a12c"/>
+      <rect x="12" y="-6" width="98" height="12" fill="#dbb339"/>
+      <g stroke="#a8841d" stroke-width="2">
+        <line x1="18" y1="-6" x2="22" y2="6"/><line x1="26" y1="-6" x2="30" y2="6"/><line x1="34" y1="-6" x2="38" y2="6"/><line x1="42" y1="-6" x2="46" y2="6"/><line x1="50" y1="-6" x2="54" y2="6"/><line x1="58" y1="-6" x2="62" y2="6"/><line x1="66" y1="-6" x2="70" y2="6"/><line x1="74" y1="-6" x2="78" y2="6"/><line x1="82" y1="-6" x2="86" y2="6"/><line x1="90" y1="-6" x2="94" y2="6"/><line x1="98" y1="-6" x2="102" y2="6"/></g>
+      <polygon points="110,-6 120,0 110,6" fill="#dbb339"/><polygon points="1,-3 3,-4 4,0 3,4 1,3 0,0" fill="#222"/></g></svg>
+    <div class="t"><b><span class="sw" style="background:#dbb339"></span>Конфирмат 6,4×50</b><span>Стяжка через пласть одной детали в торец другой. Шестигранник 4 мм. <span id="cntK"></span></span></div>
+  </div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(30,35)">
+      <rect x="0" y="-9" width="90" height="18" rx="5" fill="#d29e61"/>
+      <g stroke="#a7743c" stroke-width="2.5"><line x1="10" y1="-9" x2="10" y2="9"/><line x1="20" y1="-9" x2="20" y2="9"/><line x1="30" y1="-9" x2="30" y2="9"/><line x1="40" y1="-9" x2="40" y2="9"/><line x1="50" y1="-9" x2="50" y2="9"/><line x1="60" y1="-9" x2="60" y2="9"/><line x1="70" y1="-9" x2="70" y2="9"/><line x1="80" y1="-9" x2="80" y2="9"/></g></g></svg>
+    <div class="t"><b><span class="sw" style="background:#d29e61"></span>Шкант 8×30, бук</b><span>Направляет детали при сборке, ставится на клей или без. <span id="cntS"></span></span></div>
+  </div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(14,35)">
+      <circle cx="22" cy="0" r="20" fill="#b3bdcc"/><rect x="19" y="-14" width="6" height="28" rx="1" fill="#33363b"/>
+      <circle cx="22" cy="0" r="6" fill="#8d949e"/><rect x="26" y="-3.5" width="70" height="7" fill="#8d949e"/>
+      <rect x="96" y="-5" width="24" height="10" rx="2" fill="#8d949e"/>
+      <g stroke="#6f757e" stroke-width="2"><line x1="100" y1="-5" x2="102" y2="5"/><line x1="105" y1="-5" x2="107" y2="5"/><line x1="110" y1="-5" x2="112" y2="5"/><line x1="115" y1="-5" x2="117" y2="5"/></g></g></svg>
+    <div class="t"><b><span class="sw" style="background:#b3bdcc"></span>Эксцентриковая стяжка Rastex</b><span>Корпус Ø15 в пласти, 24 мм от края. Стяжка с пластиковой втулкой вкручивается в соседнюю деталь, затягивается поворотом корпуса. <span id="cntE"></span></span></div>
+  </div>
+  <div style="font-size:13px;color:#777;margin-top:8px">Рисунки схематичные. Петли, ножки, направляющие и профили показаны так, как их выгрузил Базис.</div>
+</div></div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script>
+window.addEventListener('error', e => { const s = document.getElementById('status'); if (s) s.textContent = 'Ошибка: ' + e.message; const r = document.getElementById('err'); if (r) r.textContent = 'Ошибка: ' + e.message; });
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+
+let renderer, scene, camera, controls;
+let BLOCKS = [];         // [{ obj, label }] — блоки верхнего уровня модели, в порядке из Базиса
+let frameObjs = [];      // габаритные рамки
+let mode = 'only';       // 'only' | 'all' | 'step'
+let current = 0;
+let showFrames = false;
+let xray = false;        // прозрачный вид с рёбрами
+let ghosts = false;      // показывать остальные блоки бледно
+let edgesBuilt = false;
+let showFast = true;     // конфирматы, шканты, эксцентрики
+// --- Скрытие частей модели ---
+const hiddenBlocks = new Set();   // номера блоков, скрытых глазком в списке
+const hiddenParts = new Set();    // детали, скрытые по нажатию
+const KINDS = {                   // группы по имени детали (имена в файле — транслит Базиса)
+  walls:  { btn: 'bWalls',  re: /(^|[^а-яё])стен[аыиу]?([^а-яё]|$)/i, nodes: [], hide: false, block: true },
+  plinth: { btn: 'bPlinth', re: /цокол/i, nodes: [], hide: false },
+  top:    { btn: 'bTop',    re: /столешниц/i, nodes: [], hide: false },
+};
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.12, depthWrite: false });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 });
+const xrayCache = new Map();
+const fastOf = (o) => o.userData.fastener ? o : (o.parent && o.parent.userData.fastener ? o.parent : null);
+function xrayOf(m) {
+  if (!xrayCache.has(m)) {
+    const c = m.clone();
+    c.transparent = true; c.opacity = 0.28; c.depthWrite = false;
+    xrayCache.set(m, c);
+  }
+  return xrayCache.get(m);
+}
+function buildEdges() {
+  if (edgesBuilt) return;
+  edgesBuilt = true;
+  const meshes = [];
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.isMesh && !fastOf(o)) meshes.push(o); }));
+  meshes.forEach(o => {
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 25), edgeMat);
+    e.userData.isEdge = true;
+    e.visible = false;
+    o.add(e);
+  });
+}
+// Как показать блок: 'normal' | 'xray' | 'ghost' | 'hidden'
+function setLook(obj, look) {
+  obj.visible = look !== 'hidden';
+  if (look === 'hidden') return;
+  obj.traverse(o => {
+    if (o.userData.isEdge) { o.visible = look === 'xray'; return; }
+    if (o.userData.fastener) { o.visible = showFast && look !== 'ghost'; return; }
+    if (!o.isMesh || fastOf(o)) return;
+    if (!o.userData.mat0) o.userData.mat0 = o.material;
+    o.material = look === 'ghost' ? ghostMat : (look === 'xray' ? xrayOf(o.userData.mat0) : o.userData.mat0);
+    o.renderOrder = look === 'normal' ? 0 : 1;
+  });
+}
+
+// --- Расшифровка: model.bin = соль(16) + IV(12) + шифртекст (AES-GCM, ключ PBKDF2-SHA256) ---
+async function decrypt(password, buf) {
+  const b = new Uint8Array(buf);
+  const salt = b.slice(0, 16), iv = b.slice(16, 28), data = b.slice(28);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+}
+
+async function gunzipIfNeeded(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).arrayBuffer();
+}
+
+async function openModel() {
+  $('err').textContent = '';
+  const pw = $('pw').value;
+  if (!pw) { $('err').textContent = 'Введите пароль'; return; }
+  $('go').disabled = true;
+  try {
+    $('err').textContent = 'Скачивание модели…';
+    const resp = await fetch('model.bin', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('Не найден model.bin');
+    const buf = await resp.arrayBuffer();
+    $('err').textContent = 'Проверка пароля…';
+    const plain = await gunzipIfNeeded(await decrypt(pw, buf));
+    if (new TextDecoder().decode(new Uint8Array(plain, 0, 5)) === '#VRML')
+      throw new Error('на сайте старый файл model.bin. Загрузите новый, сделанный из .glb');
+    $('err').textContent = '';
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    statusEl.textContent = 'Разбор модели…';
+    await new Promise(r => setTimeout(r, 30));
+    try { await init(plain); }
+    catch (e2) { statusEl.textContent = 'Ошибка при разборе модели: ' + e2.message; console.error(e2); }
+    return;
+  } catch (e) {
+    $('err').textContent = e.name === 'OperationError' ? 'Неверный пароль' : ('Ошибка: ' + e.message);
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+// Имена в файле записаны латиницей (транслит Базиса). Переводим обратно в кириллицу для кнопок.
+function label(name) {
+  let s = name.replace(/_+/g, ' ').replace(/^(\d+)\.\s*/, '$1 ').replace(/\.(?=\s|$)/g, '').trim();
+  const pairs = [['shch','щ'],['kh','х'],['zh','ж'],['ch','ч'],['sh','ш'],['ts','ц'],['yu','ю'],['ya','я'],['yo','ё'],
+    ['a','а'],['b','б'],['v','в'],['g','г'],['d','д'],['e','е'],['z','з'],['i','и'],['k','к'],['l','л'],['m','м'],['n','н'],
+    ['o','о'],['p','п'],['r','р'],['s','с'],['t','т'],['u','у'],['f','ф'],['c','ц'],['h','х'],['j','й'],['w','в'],['x','кс'],['q','к']];
+  return s.split(' ').map(w => {
+    if (/^[0-9.]+$/.test(w)) return w;
+    const allUp = /^[A-Z]{2,}$/.test(w);
+    const up = /^[A-Z]/.test(w);
+    let lw = w.toLowerCase(), out = '';
+    for (let i = 0; i < lw.length;) {
+      const p = pairs.find(([lat]) => lw.startsWith(lat, i));
+      if (p && p[0].length > 1) { out += p[1]; i += p[0].length; continue; }
+      if (lw[i] === 'y') { out += /[аеиоуыэюяёі]/.test(out.slice(-1)) ? 'й' : 'ы'; i++; continue; }
+      if (p) { out += p[1]; i += p[0].length; } else { out += lw[i]; i++; }
+    }
+    if (allUp) return out.toUpperCase();
+    return up ? out[0].toUpperCase() + out.slice(1) : out;
+  }).join(' ');
+}
+
+async function init(glbBuffer) {
+  const view = $('view');
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  view.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x3a3f47);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2.2));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+  dir.position.set(1, 2, 1.5);
+  scene.add(dir);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.8);
+  fill.position.set(-1, 0.5, -1);
+  scene.add(fill);
+
+  camera = new THREE.PerspectiveCamera(45, 1, 1, 100000);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  const gltf = await new GLTFLoader().parseAsync(glbBuffer, '');
+  legendPhotos(gltf).catch(() => {});
+  const model = gltf.scene;
+  scene.add(model);
+
+  // Блоки: дочерние узлы корня модели («Model»), как в дереве Базиса
+  let root = model;
+  while (root.children.length === 1 && !root.children[0].isMesh) root = root.children[0];
+  const nm = (o) => o.userData.name || o.name;
+  BLOCKS = root.children.filter(o => !o.isMesh && nm(o) !== 'Gabaritnaya_ramka')
+                        .map(o => ({ obj: o, label: label(nm(o) || 'Блок') }));
+  frameObjs = [];
+  model.traverse(o => { if (nm(o) === 'Gabaritnaya_ramka') frameObjs.push(o); });
+
+  findKinds();
+  buildList();
+  applyView();
+  fitToVisible();
+  countKinds();
+  initAnim(model);
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) FAST.push(o); }));
+  renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 6) onPick(e);
+    downAt = null;
+  });
+
+  window.addEventListener('resize', resize);
+  resize();
+  renderer.setAnimationLoop((now) => { stepAnim(now); controls.update(); if (pickBox) pickBox.update(); renderer.render(scene, camera); });
+}
+
+function resize() {
+  const view = $('view');
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+// Находим стены (целые блоки или детали), цоколь и столешницы (детали внутри блоков) по названию
+function findKinds() {
+  // каждая группа ищется отдельно: цоколь лежит внутри блока «Столешница» и должен скрываться сам по себе
+  Object.values(KINDS).forEach(k => {
+    const walk = (o, isBlock) => {
+      const n = o.userData.name || o.name || '';
+      if (n && (k.block || !isBlock) && k.re.test(label(n))) { k.nodes.push(o); return; }  // узел скрывается целиком
+      o.children.forEach(c => walk(c, false));
+    };
+    BLOCKS.forEach(b => walk(b.obj, true));
+    $(k.btn).hidden = k.nodes.length === 0;
+  });
+}
+
+function buildList() {
+  const list = $('list');
+  list.innerHTML = '';
+  BLOCKS.forEach((b, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.dataset.i = i;
+    const btn = document.createElement('button');
+    btn.className = 'sel';
+    btn.textContent = b.label;
+    btn.dataset.i = i;
+    btn.onclick = () => { current = i; mode = 'only'; applyView(); fitToVisible(); };
+    const eye = document.createElement('button');
+    eye.className = 'eye';
+    eye.textContent = '👁';
+    eye.title = 'Скрыть / показать блок';
+    eye.onclick = () => { hiddenBlocks.has(i) ? hiddenBlocks.delete(i) : hiddenBlocks.add(i); applyView(); };
+    row.append(btn, eye);
+    list.appendChild(row);
+  });
+}
+
+// Деталь, к которой относится нажатый меш (ближайший предок с осмысленным именем)
+function partNode(o) {
+  if (o.userData.fastener) return o;
+  const blk = blockOf(o);
+  for (let p = o.parent; p && blk && p !== blk.obj; p = p.parent) {
+    const n = nmOf(p);
+    if (n && !/^mesh_/.test(n)) return p;
+  }
+  return o;
+}
+function hideNodes() {
+  const keep = mode === 'only' && BLOCKS[current] ? BLOCKS[current].obj : null;
+  Object.values(KINDS).forEach(k => {
+    setOn(k.btn, !k.hide);
+    if (k.hide) k.nodes.forEach(n => { if (n !== keep) n.visible = false; });
+  });
+  hiddenParts.forEach(n => { n.visible = false; });
+  const cnt = hiddenParts.size + [...hiddenBlocks].length + Object.values(KINDS).filter(k => k.hide).length;
+  $('bUnhide').hidden = cnt === 0;
+}
+function showNodesBack() {
+  // перед новой раскладкой возвращаем видимость всем узлам, которые могли быть скрыты
+  Object.values(KINDS).forEach(k => k.nodes.forEach(n => { n.visible = true; }));
+  hiddenParts.forEach(n => { n.visible = true; });
+}
+
+function applyView() {
+  if (typeof showInfo === 'function' && pickBox) showInfo(null);
+  if (xray) buildEdges();
+  showNodesBack();
+  BLOCKS.forEach((b, i) => {
+    const sel = mode === 'all' || (mode === 'only' ? i === current : i <= current);
+    const off = hiddenBlocks.has(i) && !(mode === 'only' && i === current);
+    setLook(b.obj, off ? 'hidden' : (sel ? (xray ? 'xray' : 'normal') : (ghosts ? 'ghost' : 'hidden')));
+  });
+  hideNodes();
+  frameObjs.forEach(f => f.visible = showFrames);
+  document.querySelectorAll('#list .row').forEach(r => r.classList.toggle('off', hiddenBlocks.has(Number(r.dataset.i))));
+
+  setOn('bOnly', mode === 'only');
+  setOn('bAll', mode === 'all');
+  setOn('bStep', mode === 'step');
+  setOn('bFrames', showFrames);
+  setOn('bXray', xray);
+  setOn('bGhost', ghosts);
+  setOn('bFast', showFast);
+  document.querySelectorAll('#list button').forEach(b => b.classList.toggle('on', Number(b.dataset.i) === current));
+
+  const lbl = BLOCKS[current] ? BLOCKS[current].label : '';
+  if (mode === 'only') statusEl.textContent = 'Блок: ' + lbl;
+  else if (mode === 'step') statusEl.textContent = 'Шаг ' + (current + 1) + ' из ' + BLOCKS.length + ': ' + lbl;
+  else statusEl.textContent = 'Все блоки';
+  const off = [];
+  Object.entries(KINDS).forEach(([id, k]) => { if (k.hide) off.push({ walls: 'стены', plinth: 'цоколь', top: 'столешница' }[id]); });
+  if (hiddenBlocks.size) off.push('блоков: ' + hiddenBlocks.size);
+  if (hiddenParts.size) off.push('деталей: ' + hiddenParts.size);
+  if (off.length) statusEl.textContent += ' · скрыто: ' + off.join(', ');
+}
+
+function setOn(id, on) { $(id).classList.toggle('on', on); }
+
+// ---------- Подписи по нажатию ----------
+function fastName(name, kind) {
+  const n = name || '';
+  const art = (n.match(/_(\d{4,})$/) || [])[1];
+  const tail = art ? ', арт. ' + art : '';
+  if (kind === 'konfirmat') {
+    const m = n.match(/(\d+)_(\d+)_na_(\d+)/);
+    return 'Конфирмат ' + (m ? m[1] + ',' + m[2] + '×' + m[3] : '') + (/Muller/i.test(n) ? ' Muller' : '') + tail;
+  }
+  if (kind === 'shkant') {
+    const m = n.match(/(\d+)kh(\d+)/);
+    return 'Шкант деревянный ' + (m ? m[1] + '×' + m[2] : '') + (/Buk/i.test(n) ? ', бук' : '') + (/Muller/i.test(n) ? ' Muller' : '') + tail;
+  }
+  if (kind === 'ekscentrik') {
+    const m = n.match(/Rastex_(\d+\/\d+)/);
+    return 'Эксцентриковая стяжка Rastex ' + (m ? m[1] : '') + (/Hettich/i.test(n) ? ' Hettich' : '') + tail;
+  }
+  return label(n);
+}
+const nmOf = (o) => o.userData.name || o.name;
+function blockOf(o) {
+  let b = null;
+  BLOCKS.forEach(x => { let p = o; while (p) { if (p === x.obj) b = x; p = p.parent; } });
+  return b;
+}
+function partName(o) {
+  // ближайший предок с осмысленным именем (деталь), не сам блок
+  let p = o.parent;
+  const blk = blockOf(o);
+  while (p && blk && p !== blk.obj) { const n = nmOf(p); if (n && !/^mesh_/.test(n)) return n; p = p.parent; }
+  return blk ? nmOf(blk.obj) : '';
+}
+let pickBox = null;
+function showInfo(o) {
+  const info = $('info');
+  if (pickBox) { scene.remove(pickBox); pickBox = null; }
+  if (!o) { info.hidden = true; return; }
+  const blk = blockOf(o);
+  let title, extra = '';
+  if (o.userData.fastener) {
+    const fname = o.userData.fname || nmOf(o.parent);
+    title = fastName(fname, o.userData.fastener);
+    let cnt = 0;
+    if (blk) blk.obj.traverse(x => { if (x.userData.fastener && (x.userData.fname || '') === (o.userData.fname || '')) cnt++; });
+    extra = 'В этом блоке: ' + cnt + ' шт.';
+  } else {
+    title = label(partName(o));
+  }
+  info.innerHTML = '<button class="x" aria-label="Закрыть">×</button><b></b><div></div><small></small><button class="act">Скрыть эту деталь</button>';
+  const node = partNode(o);
+  info.querySelector('.act').textContent = o.userData.fastener ? 'Скрыть этот крепёж' : 'Скрыть эту деталь';
+  info.querySelector('.act').onclick = () => { hiddenParts.add(node); showInfo(null); applyView(); };
+  info.querySelector('b').textContent = title;
+  info.querySelector('div').textContent = (blk ? 'Блок: ' + blk.label : '') + (extra ? ' · ' + extra : '');
+  info.querySelector('small').textContent = o.userData.fastener ? (o.userData.fname || '') : '';
+  info.querySelector('.x').onclick = () => showInfo(null);
+  info.hidden = false;
+  pickBox = new THREE.BoxHelper(o.userData.fastener ? o : (o.parent || o), 0xffd400);
+  scene.add(pickBox);
+}
+function visibleChain(o) { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; }
+const ray = new THREE.Raycaster();
+let downAt = null;
+let FAST = [];
+function onPick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  const px = ev.clientX - r.left, py = ev.clientY - r.top;
+  // 1) крепёж рядом с точкой нажатия (до 16 px) — тонкий, по нему трудно попасть
+  if (showFast && xray) {
+    let best = null, bd = 16;
+    const box = new THREE.Box3(), c = new THREE.Vector3();
+    FAST.forEach(o => {
+      if (!visibleChain(o)) return;
+      box.setFromObject(o).getCenter(c);
+      c.project(camera);
+      if (c.z > 1) return;
+      const d = Math.hypot((c.x + 1) / 2 * r.width - px, (1 - c.y) / 2 * r.height - py);
+      if (d < bd) { bd = d; best = o; }
+    });
+    if (best) { showInfo(best); return; }
+  }
+  // 2) деталь под курсором
+  const v = new THREE.Vector2(px / r.width * 2 - 1, -(py / r.height) * 2 + 1);
+  ray.setFromCamera(v, camera);
+  const objs = [];
+  BLOCKS.forEach(b => objs.push(b.obj));
+  const hits = ray.intersectObjects(objs, true)
+    .filter(h => h.object.isMesh && visibleChain(h.object) && h.object.material !== ghostMat);
+  if (!hits.length) { showInfo(null); return; }
+  const first = hits[0].object;
+  const ag = animOf(first);
+  if (ag) toggleGroup(ag, ag.target < 0.5 ? 1 : 0);
+  showInfo(fastOf(first) || first);
+}
+// Фото крепежа, вложенные в зашифрованную модель (asset.extras.legend)
+async function legendPhotos(gltf) {
+  const leg = (gltf.parser.json.asset.extras || {}).legend;
+  if (!leg) return;
+  const url = async (k) => leg[k] === undefined ? null :
+    URL.createObjectURL(new Blob([await gltf.parser.getDependency('bufferView', leg[k])], { type: 'image/jpeg' }));
+  const items = document.querySelectorAll('#legend .item');
+  const put = async (item, keys) => {
+    const urls = (await Promise.all(keys.map(url))).filter(Boolean);
+    if (!urls.length || !item) return;
+    const box = document.createElement('div'); box.className = 'ph';
+    urls.forEach(u => { const im = new Image(); im.src = u; im.alt = ''; box.appendChild(im); });
+    item.querySelector('svg').replaceWith(box);
+  };
+  await put(items[0], ['konfirmat']);
+  await put(items[1], ['shkant']);
+  await put(items[2], ['ekscentrik_cam', 'ekscentrik_bolt']);
+}
+function countKinds() {
+  const c = { konfirmat: 0, shkant: 0, ekscentrik: 0 };
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) c[o.userData.fastener]++; }));
+  $('cntK').textContent = 'В модели: ' + c.konfirmat + ' шт.';
+  $('cntS').textContent = 'В модели: ' + c.shkant + ' шт.';
+  $('cntE').textContent = 'В модели: ' + c.ekscentrik + ' шт.';
+}
+
+// ---------- Открывание фасадов, ящиков и подъёмников (разметка extras.anim в модели) ----------
+const GROUPS = new Map();
+const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+function rotAbout(p, a, deg) {
+  const m = new THREE.Matrix4().makeRotationAxis(V3(a).normalize(), deg * Math.PI / 180);
+  const P = V3(p);
+  return new THREE.Matrix4().makeTranslation(P.x, P.y, P.z).multiply(m).multiply(new THREE.Matrix4().makeTranslation(-P.x, -P.y, -P.z));
+}
+function animMatrix(s, t) {
+  if (s.k === 'slide') return new THREE.Matrix4().makeTranslation(s.v[0] * t, s.v[1] * t, s.v[2] * t);
+  if (s.k === 'rot' || s.k === 'hfU') return rotAbout(s.p, s.a, s.ang * t);
+  if (s.k === 'hk') return new THREE.Matrix4().makeTranslation(s.lift[0] * t, s.lift[1] * t, s.lift[2] * t).multiply(rotAbout(s.p, s.a, s.ang * t));
+  if (s.k === 'hfL') {
+    // нижняя створка висит на шарнире m: он идёт за верхней створкой, сама створка поворачивается на ang2
+    const M0 = V3(s.m), M1 = M0.clone().applyMatrix4(rotAbout(s.p, s.a, s.ang * t));
+    return new THREE.Matrix4().makeTranslation(M1.x - M0.x, M1.y - M0.y, M1.z - M0.z).multiply(rotAbout(s.m, s.a, s.ang2 * t));
+  }
+  return new THREE.Matrix4();
+}
+function initAnim(model) {
+  model.updateMatrixWorld(true);
+  model.traverse(o => {
+    const s = o.userData.anim;
+    if (!s) return;
+    // если предок уже движется в той же группе, узел едет вместе с ним
+    for (let p = o.parent; p; p = p.parent) if (p.userData.anim && p.userData.anim.g === s.g) return;
+    if (!GROUPS.has(s.g)) GROUPS.set(s.g, { nodes: [], t: 0, target: 0 });
+    GROUPS.get(s.g).nodes.push({ o, s, P: o.parent.matrixWorld.clone(), Pi: o.parent.matrixWorld.clone().invert(), L0: o.matrix.clone() });
+  });
+  $('bOpen').hidden = GROUPS.size === 0;
+}
+function animOf(o) {
+  for (let p = o; p; p = p.parent) if (p.userData.anim) return GROUPS.get(p.userData.anim.g);
+  return null;
+}
+function toggleGroup(g, to) { g.target = to; }
+function updOpenBtn() {
+  const any = [...GROUPS.values()].some(g => g.target > 0.5 && g.nodes.some(n => visibleChain(n.o)));
+  $('bOpen').textContent = any ? 'Закрыть всё' : 'Открыть всё';
+}
+let lastT = 0;
+function stepAnim(now) {
+  const dt = Math.min(0.05, (now - (lastT || now)) / 1000); lastT = now;
+  let moved = false;
+  GROUPS.forEach(g => {
+    if (g.t === g.target) return;
+    g.t = g.target > g.t ? Math.min(g.target, g.t + dt / 0.9) : Math.max(g.target, g.t - dt / 0.9);
+    const e = g.t * g.t * (3 - 2 * g.t);
+    g.nodes.forEach(n => {
+      const m = n.Pi.clone().multiply(animMatrix(n.s, e)).multiply(n.P).multiply(n.L0);
+      m.decompose(n.o.position, n.o.quaternion, n.o.scale);
+    });
+    moved = true;
+  });
+  if (moved) updOpenBtn();
+}
+
+function fitToVisible() {
+  const box = new THREE.Box3();
+  const objs = mode === 'all' ? BLOCKS : (mode === 'step' ? BLOCKS.slice(0, current + 1) : [BLOCKS[current]]);
+  objs.forEach(b => { if (b) box.expandByObject(b.obj); });
+  if (box.isEmpty()) return;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3()).length();
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(size * 0.6, size * 0.45, size * 0.9));
+  camera.near = size / 1000;
+  camera.far = size * 20;
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function go(newMode, delta = 0) {
+  if (newMode) mode = newMode;
+  if (delta) current = Math.min(BLOCKS.length - 1, Math.max(0, current + delta));
+  applyView();
+  fitToVisible();
+}
+
+$('go').onclick = openModel;
+$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') openModel(); });
+$('bOnly').onclick = () => go('only');
+$('bAll').onclick = () => go('all');
+$('bStep').onclick = () => go('step');
+$('bFrames').onclick = () => { showFrames = !showFrames; applyView(); };
+$('bXray').onclick = () => {
+  if (!xray && !edgesBuilt) { statusEl.textContent = 'Готовлю прозрачный вид…'; setTimeout(() => { xray = true; applyView(); }, 30); return; }
+  xray = !xray; applyView();
+};
+$('bGhost').onclick = () => { ghosts = !ghosts; applyView(); };
+$('bFast').onclick = () => { showFast = !showFast; applyView(); };
+$('bOpen').onclick = () => {
+  const vis = [...GROUPS.values()].filter(g => g.nodes.some(n => visibleChain(n.o)));
+  const open = !vis.some(g => g.target > 0.5);
+  vis.forEach(g => toggleGroup(g, open ? 1 : 0));
+  updOpenBtn();
+};
+$('bWalls').onclick  = () => { KINDS.walls.hide  = !KINDS.walls.hide;  applyView(); };
+$('bPlinth').onclick = () => { KINDS.plinth.hide = !KINDS.plinth.hide; applyView(); };
+$('bTop').onclick    = () => { KINDS.top.hide    = !KINDS.top.hide;    applyView(); };
+$('bUnhide').onclick = () => {
+  hiddenParts.forEach(n => { n.visible = true; });
+  hiddenParts.clear();
+  hiddenBlocks.clear();
+  Object.values(KINDS).forEach(k => { k.hide = false; });
+  applyView();
+};
+$('bLegend').onclick = () => { $('legend').hidden = false; };
+$('legendClose').onclick = () => { $('legend').hidden = true; };
+$('legend').onclick = (e) => { if (e.target.id === 'legend') $('legend').hidden = true; };
+$('prev').onclick = () => go(null, -1);
+$('next').onclick = () => go(null, +1);
+</script>
+</body>
+</html>
