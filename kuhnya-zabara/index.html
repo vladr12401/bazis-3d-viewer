@@ -2,15 +2,34 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- «На экран Домой»: открывается как отдельное приложение, без панели браузера -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Сборка">
+<meta name="theme-color" content="#ffffff">
 <title>Просмотр сборки</title>
 <style>
-  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #f4f4f2; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #f4f4f2; overscroll-behavior: none; }
   #gate { max-width: 320px; margin: 15vh auto; padding: 24px; background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
   #gate h2 { margin: 0 0 16px; font-size: 20px; }
   #gate input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; margin-bottom: 10px; }
   #err { color: #b00020; min-height: 1.2em; margin: 8px 0 0; font-size: 14px; }
-  #app { display: flex; flex-direction: column; height: 100%; }
+  #app { display: flex; flex-direction: column; height: 100%; height: 100dvh; position: relative;
+         padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+  #app[hidden] { display: none; }
+  /* верхняя строка для телефона: Меню, Назад, Вперёд, Во весь экран */
+  #mbar { display: none; gap: 6px; padding: 6px 8px; background: #fff; border-bottom: 1px solid #ddd; }
+  #mbar button, #fbar button { padding: 7px 10px; font-size: 15px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
+  #mbar #mMenu { flex: 1; text-align: left; }
+  #mbar button.on { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  /* кнопки поверх модели в режиме «Во весь экран» */
+  #fbar { display: none; position: absolute; left: 8px; top: 8px; gap: 6px; z-index: 4; }
+  #fbar button { background: rgba(255,255,255,.88); font-size: 17px; min-width: 42px; }
+  body.full #bar, body.full #mbar, body.full #list { display: none !important; }
+  body.full #fbar { display: flex; }
+  #view canvas { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: #fff; border-bottom: 1px solid #ddd; }
   #bar button, #gate button { padding: 9px 12px; font-size: 15px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
   #bar button.on { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
@@ -45,12 +64,26 @@
   .item .ph { flex: 0 0 150px; display: flex; gap: 4px; }
   .item .ph img { flex: 1; min-width: 0; height: 70px; object-fit: contain; background: #fff; border-radius: 6px; border: 1px solid #eee; }
   .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+  /* Телефон (стоя или лёжа): кнопки свёрнуты в «☰ Меню», панель выпадает поверх модели */
+  @media (max-width: 640px), (max-height: 500px) {
+    #mbar { display: flex; }
+    #bar { display: none; position: absolute; left: 0; right: 0; top: 46px; z-index: 6; max-height: 70%; overflow-y: auto;
+           box-shadow: 0 6px 16px rgba(0,0,0,.25); padding: 8px; }
+    body.menu #bar { display: flex; }
+    #bar button { padding: 8px 10px; font-size: 14px; }
+    #bar #prev, #bar #next, #bar #bFull { display: none; }
+    #list button { padding: 8px; font-size: 14px; }
+    #list .row .eye { width: 32px; padding: 8px 0; font-size: 15px; }
+  }
   @media (max-width: 640px) {
     #main { flex-direction: column; }
-    #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
+    #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; flex: 0 0 auto; }
     #list button { width: auto; white-space: nowrap; border-bottom: 0; }
     #list .row { border-bottom: 0; border-right: 1px solid #eee; flex: 0 0 auto; }
     #list .row .sel { flex: 0 0 auto; }
+  }
+  @media (max-height: 500px) and (min-width: 641px) {
+    #list { width: 150px; }
   }
 </style>
 </head>
@@ -64,6 +97,12 @@
 </div>
 
 <div id="app" hidden>
+  <div id="mbar">
+    <button id="mMenu">☰ Меню</button>
+    <button id="mPrev" aria-label="Назад">◀</button>
+    <button id="mNext" aria-label="Вперёд">▶</button>
+    <button id="mFull" aria-label="Во весь экран" style="font-size:19px;line-height:1">⤢</button>
+  </div>
   <div id="bar">
     <button id="bOnly" class="on">Только этот блок</button>
     <button id="bAll">Показать все</button>
@@ -80,10 +119,17 @@
     <button id="bLegend">Что за крепёж</button>
     <button id="prev">◀ Назад</button>
     <button id="next">Вперёд ▶</button>
+    <button id="bFull">⤢ Во весь экран</button>
   </div>
   <div id="main">
     <div id="list"></div>
-    <div id="view"><div id="status">Загрузка…</div><div id="info" hidden></div></div>
+    <div id="view"><div id="status">Загрузка…</div><div id="info" hidden></div>
+      <div id="fbar">
+        <button id="fExit" aria-label="Выйти из полного экрана">✕</button>
+        <button id="fPrev" aria-label="Назад">◀</button>
+        <button id="fNext" aria-label="Вперёд">▶</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -301,7 +347,12 @@ async function init(glbBuffer) {
   countKinds();
   initAnim(model);
   BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) FAST.push(o); }));
-  renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; menu(false); });
+  // Жесты над моделью — только для вращения модели: странице и браузеру их не отдаём
+  // (чтобы свайп не прокручивал страницу и не включал «назад» / закрытие окна)
+  ['touchstart', 'touchmove'].forEach(t =>
+    renderer.domElement.addEventListener(t, e => e.preventDefault(), { passive: false }));
+  new ResizeObserver(() => resize()).observe(view);
   renderer.domElement.addEventListener('pointerup', e => {
     if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 6) onPick(e);
     downAt = null;
@@ -649,6 +700,35 @@ $('legendClose').onclick = () => { $('legend').hidden = true; };
 $('legend').onclick = (e) => { if (e.target.id === 'legend') $('legend').hidden = true; };
 $('prev').onclick = () => go(null, -1);
 $('next').onclick = () => go(null, +1);
+
+// ---------- Телефон: меню и режим «Во весь экран» ----------
+function menu(open) {
+  const on = open === undefined ? !document.body.classList.contains('menu') : open;
+  if (on) $('bar').style.top = $('mbar').offsetHeight + 'px';
+  document.body.classList.toggle('menu', on);
+  $('mMenu').classList.toggle('on', on);
+  $('mMenu').textContent = on ? '✕ Закрыть меню' : '☰ Меню';
+}
+function fullScreen(on) {
+  menu(false);
+  document.body.classList.toggle('full', on);
+  // настоящий полный экран там, где браузер его разрешает (Android, компьютер); на iPhone — только скрытие панелей
+  const de = document.documentElement;
+  try {
+    if (on && !document.fullscreenElement && de.requestFullscreen) de.requestFullscreen().catch(() => {});
+    if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  } catch (e) {}
+}
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('full')) document.body.classList.remove('full');
+});
+$('mMenu').onclick = () => menu();
+$('mPrev').onclick = $('fPrev').onclick = () => go(null, -1);
+$('mNext').onclick = $('fNext').onclick = () => go(null, +1);
+$('mFull').onclick = $('bFull').onclick = () => fullScreen(true);
+$('fExit').onclick = () => fullScreen(false);
+// режимы показа и «Что за крепёж» закрывают меню сразу; переключатели (Крепёж, Стены…) оставляют его открытым
+['bOnly', 'bAll', 'bStep', 'bLegend'].forEach(id => $(id).addEventListener('click', () => menu(false)));
 </script>
 </body>
 </html>
