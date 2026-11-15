@@ -62,13 +62,22 @@ $('btn').onclick = async () => {
     const out = new Uint8Array(16 + 12 + cipher.length);
     out.set(salt, 0); out.set(iv, 16); out.set(cipher, 28);
 
-    const url = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = 'model.bin';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    setMsg('Готово: model.bin (' + (out.length/1048576).toFixed(1) + ' МБ) сохранён в папку загрузок.' + (out.length > 25*1048576 ? ' Файл больше 25 МБ: через сайт GitHub его не загрузить.' : ''), out.length > 25*1048576 ? 'err' : 'ok');
+    let where = 'в папку загрузок';
+    if (window.showSaveFilePicker) {
+      // Окно «Сохранить как»: всегда имя model.bin, старый файл заменяется
+      const h = await window.showSaveFilePicker({ suggestedName: 'model.bin', types: [{ description: 'Модель', accept: { 'application/octet-stream': ['.bin'] } }] });
+      const w = await h.createWritable(); await w.write(out); await w.close();
+      where = 'в выбранную папку под именем ' + h.name;
+    } else {
+      const url = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = 'model.bin';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+    setMsg('Готово: model.bin (' + (out.length/1048576).toFixed(1) + ' МБ) сохранён ' + where + '.' + (out.length > 25*1048576 ? ' Файл больше 25 МБ: через сайт GitHub его не загрузить.' : ''), out.length > 25*1048576 ? 'err' : 'ok');
   } catch (e) {
+    if (e.name === 'AbortError') { setMsg('Сохранение отменено'); return; }
     setMsg('Ошибка: ' + e.message, 'err');
   } finally {
     $('btn').disabled = false;
