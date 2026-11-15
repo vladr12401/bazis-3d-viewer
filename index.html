@@ -18,7 +18,15 @@
   #main { flex: 1; display: flex; min-height: 0; }
   #list { width: 190px; overflow-y: auto; background: #fff; border-right: 1px solid #ddd; }
   #list button { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-bottom: 1px solid #eee; background: none; font-size: 15px; cursor: pointer; }
+  #list .row { display: flex; border-bottom: 1px solid #eee; }
+  #list .row button { border-bottom: 0; }
+  #list .row .sel { flex: 1; min-width: 0; }
+  #list .row .eye { flex: 0 0 auto; width: 38px; text-align: center; padding: 10px 0; font-size: 17px; }
+  #list .row.off .sel { color: #999; text-decoration: line-through; }
+  #list .row.off .eye { opacity: .45; }
   #list button.on { background: #dbe8f8; font-weight: 600; }
+  #bar button.warn { background: #fff4d6; border-color: #e0b84a; }
+  #info .act { margin-top: 8px; padding: 6px 10px; font-size: 14px; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; cursor: pointer; }
   #view { flex: 1; position: relative; min-width: 0; }
   #view canvas { display: block; width: 100%; height: 100%; }
   #status { position: absolute; left: 8px; bottom: 8px; right: 8px; width: fit-content; background: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
@@ -41,6 +49,8 @@
     #main { flex-direction: column; }
     #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
     #list button { width: auto; white-space: nowrap; border-bottom: 0; }
+    #list .row { border-bottom: 0; border-right: 1px solid #eee; flex: 0 0 auto; }
+    #list .row .sel { flex: 0 0 auto; }
   }
 </style>
 </head>
@@ -61,7 +71,12 @@
     <button id="bXray">Прозрачный</button>
     <button id="bGhost">Соседние блоки</button>
     <button id="bFast" class="on">Крепёж</button>
+    <button id="bWalls" class="on" hidden>Стены</button>
+    <button id="bPlinth" class="on" hidden>Цоколь</button>
+    <button id="bTop" class="on" hidden>Столешница</button>
+    <button id="bUnhide" class="warn" hidden>Вернуть скрытое</button>
     <button id="bFrames">Габаритные рамки</button>
+    <button id="bOpen">Открыть всё</button>
     <button id="bLegend">Что за крепёж</button>
     <button id="prev">◀ Назад</button>
     <button id="next">Вперёд ▶</button>
@@ -130,6 +145,14 @@ let xray = false;        // прозрачный вид с рёбрами
 let ghosts = false;      // показывать остальные блоки бледно
 let edgesBuilt = false;
 let showFast = true;     // конфирматы, шканты, эксцентрики
+// --- Скрытие частей модели ---
+const hiddenBlocks = new Set();   // номера блоков, скрытых глазком в списке
+const hiddenParts = new Set();    // детали, скрытые по нажатию
+const KINDS = {                   // группы по имени детали (имена в файле — транслит Базиса)
+  walls:  { btn: 'bWalls',  re: /(^|[^а-яё])стен[аыиу]?([^а-яё]|$)/i, nodes: [], hide: false, block: true },
+  plinth: { btn: 'bPlinth', re: /цокол/i, nodes: [], hide: false },
+  top:    { btn: 'bTop',    re: /столешниц/i, nodes: [], hide: false },
+};
 const ghostMat = new THREE.MeshBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.12, depthWrite: false });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 });
 const xrayCache = new Map();
@@ -271,10 +294,12 @@ async function init(glbBuffer) {
   frameObjs = [];
   model.traverse(o => { if (nm(o) === 'Gabaritnaya_ramka') frameObjs.push(o); });
 
+  findKinds();
   buildList();
   applyView();
   fitToVisible();
   countKinds();
+  initAnim(model);
   BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) FAST.push(o); }));
   renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
   renderer.domElement.addEventListener('pointerup', e => {
@@ -284,7 +309,7 @@ async function init(glbBuffer) {
 
   window.addEventListener('resize', resize);
   resize();
-  renderer.setAnimationLoop(() => { controls.update(); if (pickBox) pickBox.update(); renderer.render(scene, camera); });
+  renderer.setAnimationLoop((now) => { stepAnim(now); controls.update(); if (pickBox) pickBox.update(); renderer.render(scene, camera); });
 }
 
 function resize() {
@@ -295,26 +320,80 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
+// Находим стены (целые блоки или детали), цоколь и столешницы (детали внутри блоков) по названию
+function findKinds() {
+  // каждая группа ищется отдельно: цоколь лежит внутри блока «Столешница» и должен скрываться сам по себе
+  Object.values(KINDS).forEach(k => {
+    const walk = (o, isBlock) => {
+      const n = o.userData.name || o.name || '';
+      if (n && (k.block || !isBlock) && k.re.test(label(n))) { k.nodes.push(o); return; }  // узел скрывается целиком
+      o.children.forEach(c => walk(c, false));
+    };
+    BLOCKS.forEach(b => walk(b.obj, true));
+    $(k.btn).hidden = k.nodes.length === 0;
+  });
+}
+
 function buildList() {
   const list = $('list');
   list.innerHTML = '';
   BLOCKS.forEach((b, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.dataset.i = i;
     const btn = document.createElement('button');
+    btn.className = 'sel';
     btn.textContent = b.label;
     btn.dataset.i = i;
     btn.onclick = () => { current = i; mode = 'only'; applyView(); fitToVisible(); };
-    list.appendChild(btn);
+    const eye = document.createElement('button');
+    eye.className = 'eye';
+    eye.textContent = '👁';
+    eye.title = 'Скрыть / показать блок';
+    eye.onclick = () => { hiddenBlocks.has(i) ? hiddenBlocks.delete(i) : hiddenBlocks.add(i); applyView(); };
+    row.append(btn, eye);
+    list.appendChild(row);
   });
+}
+
+// Деталь, к которой относится нажатый меш (ближайший предок с осмысленным именем)
+function partNode(o) {
+  if (o.userData.fastener) return o;
+  const blk = blockOf(o);
+  for (let p = o.parent; p && blk && p !== blk.obj; p = p.parent) {
+    const n = nmOf(p);
+    if (n && !/^mesh_/.test(n)) return p;
+  }
+  return o;
+}
+function hideNodes() {
+  const keep = mode === 'only' && BLOCKS[current] ? BLOCKS[current].obj : null;
+  Object.values(KINDS).forEach(k => {
+    setOn(k.btn, !k.hide);
+    if (k.hide) k.nodes.forEach(n => { if (n !== keep) n.visible = false; });
+  });
+  hiddenParts.forEach(n => { n.visible = false; });
+  const cnt = hiddenParts.size + [...hiddenBlocks].length + Object.values(KINDS).filter(k => k.hide).length;
+  $('bUnhide').hidden = cnt === 0;
+}
+function showNodesBack() {
+  // перед новой раскладкой возвращаем видимость всем узлам, которые могли быть скрыты
+  Object.values(KINDS).forEach(k => k.nodes.forEach(n => { n.visible = true; }));
+  hiddenParts.forEach(n => { n.visible = true; });
 }
 
 function applyView() {
   if (typeof showInfo === 'function' && pickBox) showInfo(null);
   if (xray) buildEdges();
+  showNodesBack();
   BLOCKS.forEach((b, i) => {
     const sel = mode === 'all' || (mode === 'only' ? i === current : i <= current);
-    setLook(b.obj, sel ? (xray ? 'xray' : 'normal') : (ghosts ? 'ghost' : 'hidden'));
+    const off = hiddenBlocks.has(i) && !(mode === 'only' && i === current);
+    setLook(b.obj, off ? 'hidden' : (sel ? (xray ? 'xray' : 'normal') : (ghosts ? 'ghost' : 'hidden')));
   });
+  hideNodes();
   frameObjs.forEach(f => f.visible = showFrames);
+  document.querySelectorAll('#list .row').forEach(r => r.classList.toggle('off', hiddenBlocks.has(Number(r.dataset.i))));
 
   setOn('bOnly', mode === 'only');
   setOn('bAll', mode === 'all');
@@ -329,6 +408,11 @@ function applyView() {
   if (mode === 'only') statusEl.textContent = 'Блок: ' + lbl;
   else if (mode === 'step') statusEl.textContent = 'Шаг ' + (current + 1) + ' из ' + BLOCKS.length + ': ' + lbl;
   else statusEl.textContent = 'Все блоки';
+  const off = [];
+  Object.entries(KINDS).forEach(([id, k]) => { if (k.hide) off.push({ walls: 'стены', plinth: 'цоколь', top: 'столешница' }[id]); });
+  if (hiddenBlocks.size) off.push('блоков: ' + hiddenBlocks.size);
+  if (hiddenParts.size) off.push('деталей: ' + hiddenParts.size);
+  if (off.length) statusEl.textContent += ' · скрыто: ' + off.join(', ');
 }
 
 function setOn(id, on) { $(id).classList.toggle('on', on); }
@@ -381,7 +465,10 @@ function showInfo(o) {
   } else {
     title = label(partName(o));
   }
-  info.innerHTML = '<button class="x" aria-label="Закрыть">×</button><b></b><div></div><small></small>';
+  info.innerHTML = '<button class="x" aria-label="Закрыть">×</button><b></b><div></div><small></small><button class="act">Скрыть эту деталь</button>';
+  const node = partNode(o);
+  info.querySelector('.act').textContent = o.userData.fastener ? 'Скрыть этот крепёж' : 'Скрыть эту деталь';
+  info.querySelector('.act').onclick = () => { hiddenParts.add(node); showInfo(null); applyView(); };
   info.querySelector('b').textContent = title;
   info.querySelector('div').textContent = (blk ? 'Блок: ' + blk.label : '') + (extra ? ' · ' + extra : '');
   info.querySelector('small').textContent = o.userData.fastener ? (o.userData.fname || '') : '';
@@ -420,6 +507,8 @@ function onPick(ev) {
     .filter(h => h.object.isMesh && visibleChain(h.object) && h.object.material !== ghostMat);
   if (!hits.length) { showInfo(null); return; }
   const first = hits[0].object;
+  const ag = animOf(first);
+  if (ag) toggleGroup(ag, ag.target < 0.5 ? 1 : 0);
   showInfo(fastOf(first) || first);
 }
 // Фото крепежа, вложенные в зашифрованную модель (asset.extras.legend)
@@ -446,6 +535,63 @@ function countKinds() {
   $('cntK').textContent = 'В модели: ' + c.konfirmat + ' шт.';
   $('cntS').textContent = 'В модели: ' + c.shkant + ' шт.';
   $('cntE').textContent = 'В модели: ' + c.ekscentrik + ' шт.';
+}
+
+// ---------- Открывание фасадов, ящиков и подъёмников (разметка extras.anim в модели) ----------
+const GROUPS = new Map();
+const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+function rotAbout(p, a, deg) {
+  const m = new THREE.Matrix4().makeRotationAxis(V3(a).normalize(), deg * Math.PI / 180);
+  const P = V3(p);
+  return new THREE.Matrix4().makeTranslation(P.x, P.y, P.z).multiply(m).multiply(new THREE.Matrix4().makeTranslation(-P.x, -P.y, -P.z));
+}
+function animMatrix(s, t) {
+  if (s.k === 'slide') return new THREE.Matrix4().makeTranslation(s.v[0] * t, s.v[1] * t, s.v[2] * t);
+  if (s.k === 'rot' || s.k === 'hfU') return rotAbout(s.p, s.a, s.ang * t);
+  if (s.k === 'hk') return new THREE.Matrix4().makeTranslation(s.lift[0] * t, s.lift[1] * t, s.lift[2] * t).multiply(rotAbout(s.p, s.a, s.ang * t));
+  if (s.k === 'hfL') {
+    // нижняя створка висит на шарнире m: он идёт за верхней створкой, сама створка поворачивается на ang2
+    const M0 = V3(s.m), M1 = M0.clone().applyMatrix4(rotAbout(s.p, s.a, s.ang * t));
+    return new THREE.Matrix4().makeTranslation(M1.x - M0.x, M1.y - M0.y, M1.z - M0.z).multiply(rotAbout(s.m, s.a, s.ang2 * t));
+  }
+  return new THREE.Matrix4();
+}
+function initAnim(model) {
+  model.updateMatrixWorld(true);
+  model.traverse(o => {
+    const s = o.userData.anim;
+    if (!s) return;
+    // если предок уже движется в той же группе, узел едет вместе с ним
+    for (let p = o.parent; p; p = p.parent) if (p.userData.anim && p.userData.anim.g === s.g) return;
+    if (!GROUPS.has(s.g)) GROUPS.set(s.g, { nodes: [], t: 0, target: 0 });
+    GROUPS.get(s.g).nodes.push({ o, s, P: o.parent.matrixWorld.clone(), Pi: o.parent.matrixWorld.clone().invert(), L0: o.matrix.clone() });
+  });
+  $('bOpen').hidden = GROUPS.size === 0;
+}
+function animOf(o) {
+  for (let p = o; p; p = p.parent) if (p.userData.anim) return GROUPS.get(p.userData.anim.g);
+  return null;
+}
+function toggleGroup(g, to) { g.target = to; }
+function updOpenBtn() {
+  const any = [...GROUPS.values()].some(g => g.target > 0.5 && g.nodes.some(n => visibleChain(n.o)));
+  $('bOpen').textContent = any ? 'Закрыть всё' : 'Открыть всё';
+}
+let lastT = 0;
+function stepAnim(now) {
+  const dt = Math.min(0.05, (now - (lastT || now)) / 1000); lastT = now;
+  let moved = false;
+  GROUPS.forEach(g => {
+    if (g.t === g.target) return;
+    g.t = g.target > g.t ? Math.min(g.target, g.t + dt / 0.9) : Math.max(g.target, g.t - dt / 0.9);
+    const e = g.t * g.t * (3 - 2 * g.t);
+    g.nodes.forEach(n => {
+      const m = n.Pi.clone().multiply(animMatrix(n.s, e)).multiply(n.P).multiply(n.L0);
+      m.decompose(n.o.position, n.o.quaternion, n.o.scale);
+    });
+    moved = true;
+  });
+  if (moved) updOpenBtn();
 }
 
 function fitToVisible() {
@@ -482,6 +628,22 @@ $('bXray').onclick = () => {
 };
 $('bGhost').onclick = () => { ghosts = !ghosts; applyView(); };
 $('bFast').onclick = () => { showFast = !showFast; applyView(); };
+$('bOpen').onclick = () => {
+  const vis = [...GROUPS.values()].filter(g => g.nodes.some(n => visibleChain(n.o)));
+  const open = !vis.some(g => g.target > 0.5);
+  vis.forEach(g => toggleGroup(g, open ? 1 : 0));
+  updOpenBtn();
+};
+$('bWalls').onclick  = () => { KINDS.walls.hide  = !KINDS.walls.hide;  applyView(); };
+$('bPlinth').onclick = () => { KINDS.plinth.hide = !KINDS.plinth.hide; applyView(); };
+$('bTop').onclick    = () => { KINDS.top.hide    = !KINDS.top.hide;    applyView(); };
+$('bUnhide').onclick = () => {
+  hiddenParts.forEach(n => { n.visible = true; });
+  hiddenParts.clear();
+  hiddenBlocks.clear();
+  Object.values(KINDS).forEach(k => { k.hide = false; });
+  applyView();
+};
 $('bLegend').onclick = () => { $('legend').hidden = false; };
 $('legendClose').onclick = () => { $('legend').hidden = true; };
 $('legend').onclick = (e) => { if (e.target.id === 'legend') $('legend').hidden = true; };
