@@ -272,6 +272,7 @@ async function init(glbBuffer) {
   applyView();
   fitToVisible();
   countKinds();
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) FAST.push(o); }));
   renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
   renderer.domElement.addEventListener('pointerup', e => {
     if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 6) onPick(e);
@@ -389,19 +390,34 @@ function showInfo(o) {
 function visibleChain(o) { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; }
 const ray = new THREE.Raycaster();
 let downAt = null;
+let FAST = [];
 function onPick(ev) {
   const r = renderer.domElement.getBoundingClientRect();
-  const v = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  const px = ev.clientX - r.left, py = ev.clientY - r.top;
+  // 1) крепёж рядом с точкой нажатия (до 16 px) — тонкий, по нему трудно попасть
+  if (showFast && xray) {
+    let best = null, bd = 16;
+    const box = new THREE.Box3(), c = new THREE.Vector3();
+    FAST.forEach(o => {
+      if (!visibleChain(o)) return;
+      box.setFromObject(o).getCenter(c);
+      c.project(camera);
+      if (c.z > 1) return;
+      const d = Math.hypot((c.x + 1) / 2 * r.width - px, (1 - c.y) / 2 * r.height - py);
+      if (d < bd) { bd = d; best = o; }
+    });
+    if (best) { showInfo(best); return; }
+  }
+  // 2) деталь под курсором
+  const v = new THREE.Vector2(px / r.width * 2 - 1, -(py / r.height) * 2 + 1);
   ray.setFromCamera(v, camera);
   const objs = [];
   BLOCKS.forEach(b => objs.push(b.obj));
   const hits = ray.intersectObjects(objs, true)
     .filter(h => h.object.isMesh && visibleChain(h.object) && h.object.material !== ghostMat);
   if (!hits.length) { showInfo(null); return; }
-  // в прозрачном виде сначала крепёж, потом ближайшая деталь
-  const f = hits.find(h => fastOf(h.object));
   const first = hits[0].object;
-  showInfo(xray && f ? fastOf(f.object) : (fastOf(first) || first));
+  showInfo(fastOf(first) || first);
 }
 function countKinds() {
   const c = { konfirmat: 0, shkant: 0, ekscentrik: 0 };
