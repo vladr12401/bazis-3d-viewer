@@ -22,6 +22,19 @@
   #view { flex: 1; position: relative; min-width: 0; }
   #view canvas { display: block; width: 100%; height: 100%; }
   #status { position: absolute; left: 8px; bottom: 8px; right: 8px; width: fit-content; background: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  #info { position: absolute; right: 8px; top: 8px; max-width: min(340px, 80%); background: rgba(255,255,255,.96); border-radius: 8px; padding: 10px 34px 10px 12px; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  #info b { display: block; font-size: 15px; margin-bottom: 4px; }
+  #info small { color: #555; display: block; margin-top: 4px; word-break: break-word; }
+  .x { position: absolute; right: 6px; top: 4px; border: 0; background: none; font-size: 20px; cursor: pointer; color: #555; }
+  #legend { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #legend[hidden] { display: none; }
+  #legend .card { position: relative; background: #fff; border-radius: 10px; padding: 16px 18px; max-width: 560px; width: 92%; max-height: 88vh; overflow-y: auto; }
+  #legend h3 { margin: 0 0 10px; }
+  .item { display: flex; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid #eee; }
+  .item svg { flex: 0 0 150px; height: 70px; background: #3a3f47; border-radius: 6px; }
+  .item .t b { display: block; }
+  .item .t span { color: #555; font-size: 14px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   @media (max-width: 640px) {
     #main { flex-direction: column; }
     #list { width: auto; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #ddd; }
@@ -47,14 +60,45 @@
     <button id="bGhost">Соседние блоки</button>
     <button id="bFast" class="on">Крепёж</button>
     <button id="bFrames">Габаритные рамки</button>
+    <button id="bLegend">Что за крепёж</button>
     <button id="prev">◀ Назад</button>
     <button id="next">Вперёд ▶</button>
   </div>
   <div id="main">
     <div id="list"></div>
-    <div id="view"><div id="status">Загрузка…</div></div>
+    <div id="view"><div id="status">Загрузка…</div><div id="info" hidden></div></div>
   </div>
 </div>
+
+<div id="legend" hidden><div class="card">
+  <button class="x" id="legendClose" aria-label="Закрыть">×</button>
+  <h3>Крепёж в модели</h3>
+  <div style="font-size:14px;color:#555">Нажмите на любую деталь или крепёж в модели: справа вверху появится его название. Крепёж лучше всего виден в режиме «Прозрачный».</div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(18,35)">
+      <rect x="0" y="-9" width="5" height="18" rx="1.5" fill="#dbb339"/><polygon points="5,-9 12,-6 12,6 5,9" fill="#c9a12c"/>
+      <rect x="12" y="-6" width="98" height="12" fill="#dbb339"/>
+      <g stroke="#a8841d" stroke-width="2">
+        <line x1="18" y1="-6" x2="22" y2="6"/><line x1="26" y1="-6" x2="30" y2="6"/><line x1="34" y1="-6" x2="38" y2="6"/><line x1="42" y1="-6" x2="46" y2="6"/><line x1="50" y1="-6" x2="54" y2="6"/><line x1="58" y1="-6" x2="62" y2="6"/><line x1="66" y1="-6" x2="70" y2="6"/><line x1="74" y1="-6" x2="78" y2="6"/><line x1="82" y1="-6" x2="86" y2="6"/><line x1="90" y1="-6" x2="94" y2="6"/><line x1="98" y1="-6" x2="102" y2="6"/></g>
+      <polygon points="110,-6 120,0 110,6" fill="#dbb339"/><polygon points="1,-3 3,-4 4,0 3,4 1,3 0,0" fill="#222"/></g></svg>
+    <div class="t"><b><span class="sw" style="background:#dbb339"></span>Конфирмат 6,4×50</b><span>Стяжка через пласть одной детали в торец другой. Шестигранник 4 мм. <span id="cntK"></span></span></div>
+  </div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(30,35)">
+      <rect x="0" y="-9" width="90" height="18" rx="5" fill="#d29e61"/>
+      <g stroke="#a7743c" stroke-width="2.5"><line x1="10" y1="-9" x2="10" y2="9"/><line x1="20" y1="-9" x2="20" y2="9"/><line x1="30" y1="-9" x2="30" y2="9"/><line x1="40" y1="-9" x2="40" y2="9"/><line x1="50" y1="-9" x2="50" y2="9"/><line x1="60" y1="-9" x2="60" y2="9"/><line x1="70" y1="-9" x2="70" y2="9"/><line x1="80" y1="-9" x2="80" y2="9"/></g></g></svg>
+    <div class="t"><b><span class="sw" style="background:#d29e61"></span>Шкант 8×30, бук</b><span>Направляет детали при сборке, ставится на клей или без. <span id="cntS"></span></span></div>
+  </div>
+  <div class="item">
+    <svg viewBox="0 0 150 70"><g transform="translate(14,35)">
+      <circle cx="22" cy="0" r="20" fill="#b3bdcc"/><rect x="19" y="-14" width="6" height="28" rx="1" fill="#33363b"/>
+      <circle cx="22" cy="0" r="6" fill="#8d949e"/><rect x="26" y="-3.5" width="70" height="7" fill="#8d949e"/>
+      <rect x="96" y="-5" width="24" height="10" rx="2" fill="#8d949e"/>
+      <g stroke="#6f757e" stroke-width="2"><line x1="100" y1="-5" x2="102" y2="5"/><line x1="105" y1="-5" x2="107" y2="5"/><line x1="110" y1="-5" x2="112" y2="5"/><line x1="115" y1="-5" x2="117" y2="5"/></g></g></svg>
+    <div class="t"><b><span class="sw" style="background:#b3bdcc"></span>Эксцентриковая стяжка Rastex</b><span>Корпус Ø15 в пласти, стержень вкручивается в соседнюю деталь. Затягивать поворотом корпуса. <span id="cntE"></span></span></div>
+  </div>
+  <div style="font-size:13px;color:#777;margin-top:8px">Рисунки схематичные. Петли, ножки, направляющие и профили показаны так, как их выгрузил Базис.</div>
+</div></div>
 
 <script type="importmap">
 { "imports": {
@@ -87,6 +131,7 @@ let showFast = true;     // конфирматы, шканты, эксцентр
 const ghostMat = new THREE.MeshBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.12, depthWrite: false });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 });
 const xrayCache = new Map();
+const fastOf = (o) => o.userData.fastener ? o : (o.parent && o.parent.userData.fastener ? o.parent : null);
 function xrayOf(m) {
   if (!xrayCache.has(m)) {
     const c = m.clone();
@@ -99,7 +144,7 @@ function buildEdges() {
   if (edgesBuilt) return;
   edgesBuilt = true;
   const meshes = [];
-  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.isMesh && !o.userData.fastener) meshes.push(o); }));
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.isMesh && !fastOf(o)) meshes.push(o); }));
   meshes.forEach(o => {
     const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 25), edgeMat);
     e.userData.isEdge = true;
@@ -114,7 +159,7 @@ function setLook(obj, look) {
   obj.traverse(o => {
     if (o.userData.isEdge) { o.visible = look === 'xray'; return; }
     if (o.userData.fastener) { o.visible = showFast && look !== 'ghost'; return; }
-    if (!o.isMesh) return;
+    if (!o.isMesh || fastOf(o)) return;
     if (!o.userData.mat0) o.userData.mat0 = o.material;
     o.material = look === 'ghost' ? ghostMat : (look === 'xray' ? xrayOf(o.userData.mat0) : o.userData.mat0);
     o.renderOrder = look === 'normal' ? 0 : 1;
@@ -226,10 +271,16 @@ async function init(glbBuffer) {
   buildList();
   applyView();
   fitToVisible();
+  countKinds();
+  renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 6) onPick(e);
+    downAt = null;
+  });
 
   window.addEventListener('resize', resize);
   resize();
-  renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+  renderer.setAnimationLoop(() => { controls.update(); if (pickBox) pickBox.update(); renderer.render(scene, camera); });
 }
 
 function resize() {
@@ -253,6 +304,7 @@ function buildList() {
 }
 
 function applyView() {
+  if (typeof showInfo === 'function' && pickBox) showInfo(null);
   if (xray) buildEdges();
   BLOCKS.forEach((b, i) => {
     const sel = mode === 'all' || (mode === 'only' ? i === current : i <= current);
@@ -276,6 +328,88 @@ function applyView() {
 }
 
 function setOn(id, on) { $(id).classList.toggle('on', on); }
+
+// ---------- Подписи по нажатию ----------
+function fastName(name, kind) {
+  const n = name || '';
+  const art = (n.match(/_(\d{4,})$/) || [])[1];
+  const tail = art ? ', арт. ' + art : '';
+  if (kind === 'konfirmat') {
+    const m = n.match(/(\d+)_(\d+)_na_(\d+)/);
+    return 'Конфирмат ' + (m ? m[1] + ',' + m[2] + '×' + m[3] : '') + (/Muller/i.test(n) ? ' Muller' : '') + tail;
+  }
+  if (kind === 'shkant') {
+    const m = n.match(/(\d+)kh(\d+)/);
+    return 'Шкант деревянный ' + (m ? m[1] + '×' + m[2] : '') + (/Buk/i.test(n) ? ', бук' : '') + (/Muller/i.test(n) ? ' Muller' : '') + tail;
+  }
+  if (kind === 'ekscentrik') {
+    const m = n.match(/Rastex_(\d+\/\d+)/);
+    return 'Эксцентриковая стяжка Rastex ' + (m ? m[1] : '') + (/Hettich/i.test(n) ? ' Hettich' : '') + tail;
+  }
+  return label(n);
+}
+const nmOf = (o) => o.userData.name || o.name;
+function blockOf(o) {
+  let b = null;
+  BLOCKS.forEach(x => { let p = o; while (p) { if (p === x.obj) b = x; p = p.parent; } });
+  return b;
+}
+function partName(o) {
+  // ближайший предок с осмысленным именем (деталь), не сам блок
+  let p = o.parent;
+  const blk = blockOf(o);
+  while (p && blk && p !== blk.obj) { const n = nmOf(p); if (n && !/^mesh_/.test(n)) return n; p = p.parent; }
+  return blk ? nmOf(blk.obj) : '';
+}
+let pickBox = null;
+function showInfo(o) {
+  const info = $('info');
+  if (pickBox) { scene.remove(pickBox); pickBox = null; }
+  if (!o) { info.hidden = true; return; }
+  const blk = blockOf(o);
+  let title, extra = '';
+  if (o.userData.fastener) {
+    const fname = o.userData.fname || nmOf(o.parent);
+    title = fastName(fname, o.userData.fastener);
+    let cnt = 0;
+    if (blk) blk.obj.traverse(x => { if (x.userData.fastener && (x.userData.fname || '') === (o.userData.fname || '')) cnt++; });
+    extra = 'В этом блоке: ' + cnt + ' шт.';
+  } else {
+    title = label(partName(o));
+  }
+  info.innerHTML = '<button class="x" aria-label="Закрыть">×</button><b></b><div></div><small></small>';
+  info.querySelector('b').textContent = title;
+  info.querySelector('div').textContent = (blk ? 'Блок: ' + blk.label : '') + (extra ? ' · ' + extra : '');
+  info.querySelector('small').textContent = o.userData.fastener ? (o.userData.fname || '') : '';
+  info.querySelector('.x').onclick = () => showInfo(null);
+  info.hidden = false;
+  pickBox = new THREE.BoxHelper(o.userData.fastener ? o : (o.parent || o), 0xffd400);
+  scene.add(pickBox);
+}
+function visibleChain(o) { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; }
+const ray = new THREE.Raycaster();
+let downAt = null;
+function onPick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  const v = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(v, camera);
+  const objs = [];
+  BLOCKS.forEach(b => objs.push(b.obj));
+  const hits = ray.intersectObjects(objs, true)
+    .filter(h => h.object.isMesh && visibleChain(h.object) && h.object.material !== ghostMat);
+  if (!hits.length) { showInfo(null); return; }
+  // в прозрачном виде сначала крепёж, потом ближайшая деталь
+  const f = hits.find(h => fastOf(h.object));
+  const first = hits[0].object;
+  showInfo(xray && f ? fastOf(f.object) : (fastOf(first) || first));
+}
+function countKinds() {
+  const c = { konfirmat: 0, shkant: 0, ekscentrik: 0 };
+  BLOCKS.forEach(b => b.obj.traverse(o => { if (o.userData.fastener) c[o.userData.fastener]++; }));
+  $('cntK').textContent = 'В модели: ' + c.konfirmat + ' шт.';
+  $('cntS').textContent = 'В модели: ' + c.shkant + ' шт.';
+  $('cntE').textContent = 'В модели: ' + c.ekscentrik + ' шт.';
+}
 
 function fitToVisible() {
   const box = new THREE.Box3();
@@ -311,6 +445,9 @@ $('bXray').onclick = () => {
 };
 $('bGhost').onclick = () => { ghosts = !ghosts; applyView(); };
 $('bFast').onclick = () => { showFast = !showFast; applyView(); };
+$('bLegend').onclick = () => { $('legend').hidden = false; };
+$('legendClose').onclick = () => { $('legend').hidden = true; };
+$('legend').onclick = (e) => { if (e.target.id === 'legend') $('legend').hidden = true; };
 $('prev').onclick = () => go(null, -1);
 $('next').onclick = () => go(null, +1);
 </script>
