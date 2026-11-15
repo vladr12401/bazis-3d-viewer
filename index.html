@@ -34,6 +34,8 @@
   .item svg { flex: 0 0 150px; height: 70px; background: #3a3f47; border-radius: 6px; }
   .item .t b { display: block; }
   .item .t span { color: #555; font-size: 14px; }
+  .item .ph { flex: 0 0 150px; display: flex; gap: 4px; }
+  .item .ph img { flex: 1; min-width: 0; height: 70px; object-fit: contain; background: #fff; border-radius: 6px; border: 1px solid #eee; }
   .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   @media (max-width: 640px) {
     #main { flex-direction: column; }
@@ -95,7 +97,7 @@
       <circle cx="22" cy="0" r="6" fill="#8d949e"/><rect x="26" y="-3.5" width="70" height="7" fill="#8d949e"/>
       <rect x="96" y="-5" width="24" height="10" rx="2" fill="#8d949e"/>
       <g stroke="#6f757e" stroke-width="2"><line x1="100" y1="-5" x2="102" y2="5"/><line x1="105" y1="-5" x2="107" y2="5"/><line x1="110" y1="-5" x2="112" y2="5"/><line x1="115" y1="-5" x2="117" y2="5"/></g></g></svg>
-    <div class="t"><b><span class="sw" style="background:#b3bdcc"></span>Эксцентриковая стяжка Rastex</b><span>Корпус Ø15 в пласти, стержень вкручивается в соседнюю деталь. Затягивать поворотом корпуса. <span id="cntE"></span></span></div>
+    <div class="t"><b><span class="sw" style="background:#b3bdcc"></span>Эксцентриковая стяжка Rastex</b><span>Корпус Ø15 в пласти, 24 мм от края. Стяжка с пластиковой втулкой вкручивается в соседнюю деталь, затягивается поворотом корпуса. <span id="cntE"></span></span></div>
   </div>
   <div style="font-size:13px;color:#777;margin-top:8px">Рисунки схематичные. Петли, ножки, направляющие и профили показаны так, как их выгрузил Базис.</div>
 </div></div>
@@ -256,6 +258,7 @@ async function init(glbBuffer) {
   controls.enableDamping = true;
 
   const gltf = await new GLTFLoader().parseAsync(glbBuffer, '');
+  legendPhotos(gltf).catch(() => {});
   const model = gltf.scene;
   scene.add(model);
 
@@ -418,6 +421,24 @@ function onPick(ev) {
   if (!hits.length) { showInfo(null); return; }
   const first = hits[0].object;
   showInfo(fastOf(first) || first);
+}
+// Фото крепежа, вложенные в зашифрованную модель (asset.extras.legend)
+async function legendPhotos(gltf) {
+  const leg = (gltf.parser.json.asset.extras || {}).legend;
+  if (!leg) return;
+  const url = async (k) => leg[k] === undefined ? null :
+    URL.createObjectURL(new Blob([await gltf.parser.getDependency('bufferView', leg[k])], { type: 'image/jpeg' }));
+  const items = document.querySelectorAll('#legend .item');
+  const put = async (item, keys) => {
+    const urls = (await Promise.all(keys.map(url))).filter(Boolean);
+    if (!urls.length || !item) return;
+    const box = document.createElement('div'); box.className = 'ph';
+    urls.forEach(u => { const im = new Image(); im.src = u; im.alt = ''; box.appendChild(im); });
+    item.querySelector('svg').replaceWith(box);
+  };
+  await put(items[0], ['konfirmat']);
+  await put(items[1], ['shkant']);
+  await put(items[2], ['ekscentrik_cam', 'ekscentrik_bolt']);
 }
 function countKinds() {
   const c = { konfirmat: 0, shkant: 0, ekscentrik: 0 };
